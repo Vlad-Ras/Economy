@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "avilixeconomy:block/shop" },
+    "facing=south": { "model": "avilixeconomy:block/shop", "y": 180 },
+    "facing=west":  { "model": "avilixeconomy:block/shop", "y": 270 },
+    "facing=east":  { "model": "avilixeconomy:block/shop", "y": 90 }
+  }
+}
