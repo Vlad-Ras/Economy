@@ -2,10 +2,12 @@ package com.roften.avilixeconomy.trade.screen;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.roften.avilixeconomy.client.ui.ResponsiveContainerScreen;
+import com.roften.avilixeconomy.compat.JeiCompat;
 import com.roften.avilixeconomy.network.NetworkRegistration;
 import com.roften.avilixeconomy.trade.menu.TradeMenu;
+import com.roften.avilixeconomy.util.MoneyUtils;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
@@ -47,17 +49,17 @@ public class TradeScreen extends ResponsiveContainerScreen<TradeMenu> {
     private static final int PANEL_PAD = 4;
 
     private EditBox moneyBox;
-    private Button readyButton;
-    private Button cancelButton;
+    private FlatTextButton readyButton;
+    private FlatTextButton cancelButton;
 
     private String leftName = "";
     private String rightName = "";
-    private long leftMoney;
-    private long rightMoney;
+    private double leftMoney;
+    private double rightMoney;
     private boolean leftReady;
     private boolean rightReady;
 
-    private long lastSentMoney = Long.MIN_VALUE;
+    private double lastSentMoney = Double.NaN;
     private int sendCooldownTicks;
     private int lastStateHash;
 
@@ -75,6 +77,12 @@ public class TradeScreen extends ResponsiveContainerScreen<TradeMenu> {
     @Override
     protected int baseHeight() {
         return GUI_HEIGHT;
+    }
+
+    @Override
+    protected int reservedRightPixels() {
+        // Leave room for JEI overlay when present.
+        return JeiCompat.reservedRightPixels();
     }
 
     @Override
@@ -111,28 +119,36 @@ public class TradeScreen extends ResponsiveContainerScreen<TradeMenu> {
         }
 
         // ===== buttons =====
-        int readyX = (this.imageWidth / 2) - 110 - 4;
-        int cancelX = (this.imageWidth / 2) + 4;
+        int center = (this.imageWidth / 2);
         int btnY = TradeMenu.BUTTONS_Y;
 
+        int readyW = 140;
+        int cancelW = 80;
+        int readyX = center - readyW - 4;
+        int cancelX = center + 4;
+
         if (this.readyButton == null) {
-            this.readyButton = Button.builder(Component.translatable("screen.avilixeconomy.trade.confirm"), b ->
-                    PacketDistributor.sendToServer(new NetworkRegistration.TradeToggleReadyPayload(menu.getSessionId()))
-            ).bounds(readyX, btnY, 110, 20).build();
+            this.readyButton = new FlatTextButton(readyX, btnY, readyW, 20,
+                    Component.translatable("screen.avilixeconomy.trade.confirm"),
+                    b -> PacketDistributor.sendToServer(new NetworkRegistration.TradeToggleReadyPayload(menu.getSessionId()))
+            );
             addRenderableWidget(this.readyButton);
         } else {
             this.readyButton.setX(readyX);
             this.readyButton.setY(btnY);
+            this.readyButton.setWidth(readyW);
         }
 
         if (this.cancelButton == null) {
-            this.cancelButton = Button.builder(Component.translatable("screen.avilixeconomy.trade.cancel"), b ->
-                    PacketDistributor.sendToServer(new NetworkRegistration.TradeCancelPayload(menu.getSessionId()))
-            ).bounds(cancelX, btnY, 110, 20).build();
+            this.cancelButton = new FlatTextButton(cancelX, btnY, cancelW, 20,
+                    Component.translatable("screen.avilixeconomy.trade.cancel"),
+                    b -> PacketDistributor.sendToServer(new NetworkRegistration.TradeCancelPayload(menu.getSessionId()))
+            );
             addRenderableWidget(this.cancelButton);
         } else {
             this.cancelButton.setX(cancelX);
             this.cancelButton.setY(btnY);
+            this.cancelButton.setWidth(cancelW);
         }
 
         updateReadyButton();
@@ -154,22 +170,6 @@ public class TradeScreen extends ResponsiveContainerScreen<TradeMenu> {
         int offerW = OFFER_COLS * 18;
         int offerH = OFFER_ROWS * 18;
 
-        // Panels around offer + info blocks
-        int offerPanelY = OFFER_HEADER_Y - PANEL_PAD;
-        int offerPanelH = (INFO_Y + INFO_H + PANEL_PAD) - offerPanelY;
-        drawPanel(gfx, MY_OFFER_X - PANEL_PAD, offerPanelY, offerW + PANEL_PAD * 2, offerPanelH, false);
-        drawPanel(gfx, THEIR_OFFER_X - PANEL_PAD, offerPanelY, offerW + PANEL_PAD * 2, offerPanelH, true);
-
-        // Buttons panel
-        drawPanel(gfx, (this.imageWidth / 2) - 114, TradeMenu.BUTTONS_Y - 6, 228, 32, false);
-
-        // Inventory panel
-        int invPanelX = INV_X - PANEL_PAD;
-        int invPanelY = INV_HEADER_Y - PANEL_PAD;
-        int invPanelW = (9 * 18) + PANEL_PAD * 2;
-        int invPanelH = (HOTBAR_Y + 18 + PANEL_PAD) - invPanelY;
-        drawPanel(gfx, invPanelX, invPanelY, invPanelW, invPanelH, false);
-
         // Header bars
         int myAccent = myReady ? 0xFF2DAA4F : 0;
         int theirAccent = theirReady ? 0xFF2DAA4F : 0;
@@ -190,10 +190,6 @@ public class TradeScreen extends ResponsiveContainerScreen<TradeMenu> {
         int theirBorder = theirReady ? 0xFF2DAA4F : 0x88000000;
         drawThinRect(gfx, MY_OFFER_X - 1, OFFER_Y - 1, offerW + 2, offerH + 2, myBorder);
         drawThinRect(gfx, THEIR_OFFER_X - 1, OFFER_Y - 1, offerW + 2, offerH + 2, theirBorder);
-
-        // Center divider
-        int mid = (this.imageWidth / 2);
-        gfx.vLine(mid, 12, this.imageHeight - 8, 0x55000000);
     }
 
     @Override
@@ -221,11 +217,13 @@ public class TradeScreen extends ResponsiveContainerScreen<TradeMenu> {
         int offerW = OFFER_COLS * 18;
 
         Component yourOffer = Component.translatable("screen.avilixeconomy.trade.your_offer");
-        gfx.drawString(this.font, yourOffer, MY_OFFER_X + 4, OFFER_HEADER_Y + 1, 0xFFFFFF, false);
+        drawTrimmed(gfx, this.font, yourOffer.getString(), MY_OFFER_X + 4, OFFER_HEADER_Y + 1, offerW - 8, 0xFFFFFF);
 
         Component partnerOffer = Component.translatable("screen.avilixeconomy.trade.partner_offer");
-        int px = THEIR_OFFER_X + offerW - 4 - this.font.width(partnerOffer);
-        gfx.drawString(this.font, partnerOffer, px, OFFER_HEADER_Y + 1, 0xFFFFFF, false);
+        String partnerTxt = partnerOffer.getString();
+        String partnerTrim = trimToWidth(this.font, partnerTxt, offerW - 8);
+        int px = THEIR_OFFER_X + offerW - 4 - this.font.width(partnerTrim);
+        gfx.drawString(this.font, partnerTrim, px, OFFER_HEADER_Y + 1, 0xFFFFFF, false);
 
         Component inv = Component.translatable("screen.avilixeconomy.trade.inventory");
         gfx.drawCenteredString(this.font, inv, this.imageWidth / 2, INV_HEADER_Y + 1, 0xFFFFFF);
@@ -235,11 +233,11 @@ public class TradeScreen extends ResponsiveContainerScreen<TradeMenu> {
         int infoRightX = THEIR_OFFER_X + 4;
         int infoTopY = INFO_Y;
 
-        long myMoney = menu.getSide() == TradeMenu.Side.LEFT ? leftMoney : rightMoney;
-        long theirMoney = menu.getSide() == TradeMenu.Side.LEFT ? rightMoney : leftMoney;
+        double myMoney = menu.getSide() == TradeMenu.Side.LEFT ? leftMoney : rightMoney;
+        double theirMoney = menu.getSide() == TradeMenu.Side.LEFT ? rightMoney : leftMoney;
 
-        gfx.drawString(this.font, Component.translatable("screen.avilixeconomy.trade.your_balance", myMoney), infoLeftX, infoTopY + 6, 0xFFFFFF, false);
-        gfx.drawString(this.font, Component.translatable("screen.avilixeconomy.trade.partner_balance", theirMoney), infoRightX, infoTopY + 6, 0xFFFFFF, false);
+        gfx.drawString(this.font, Component.translatable("screen.avilixeconomy.trade.your_balance", MoneyUtils.formatSmart(myMoney)), infoLeftX, infoTopY + 6, 0xFFFFFF, false);
+        gfx.drawString(this.font, Component.translatable("screen.avilixeconomy.trade.partner_balance", MoneyUtils.formatSmart(theirMoney)), infoRightX, infoTopY + 6, 0xFFFFFF, false);
 
         // Label for the money input box (in the left info panel)
         gfx.drawString(this.font, Component.translatable("screen.avilixeconomy.trade.amount_label"), infoLeftX, infoTopY + 18, 0xCFCFCF, false);
@@ -275,8 +273,8 @@ public class TradeScreen extends ResponsiveContainerScreen<TradeMenu> {
         if (sendCooldownTicks > 0) {
             sendCooldownTicks--;
             if (sendCooldownTicks == 0) {
-                long val = parseMoney(this.moneyBox.getValue());
-                if (val != lastSentMoney) {
+                double val = MoneyUtils.parseSmart(this.moneyBox.getValue());
+                if (Double.compare(val, lastSentMoney) != 0) {
                     lastSentMoney = val;
                     PacketDistributor.sendToServer(new NetworkRegistration.TradeUpdateMoneyPayload(menu.getSessionId(), val));
                 }
@@ -292,17 +290,6 @@ public class TradeScreen extends ResponsiveContainerScreen<TradeMenu> {
         this.readyButton.setMessage(Component.translatable(myReady ? "screen.avilixeconomy.trade.unconfirm" : "screen.avilixeconomy.trade.confirm"));
     }
 
-    private static long parseMoney(String s) {
-        if (s == null || s.isEmpty()) return 0L;
-        String digits = s.replaceAll("[^0-9]", "");
-        if (digits.isEmpty()) return 0L;
-        try {
-            return Long.parseLong(digits);
-        } catch (NumberFormatException e) {
-            return 0L;
-        }
-    }
-
     private void applyState(TradeClientState state) {
         if (state == null) return;
         this.leftName = state.leftName();
@@ -314,8 +301,8 @@ public class TradeScreen extends ResponsiveContainerScreen<TradeMenu> {
 
         // синхронизируем поле денег только если игрок не печатает
         if (this.moneyBox != null && !moneyBox.isFocused()) {
-            long myMoney = menu.getSide() == TradeMenu.Side.LEFT ? leftMoney : rightMoney;
-            this.moneyBox.setValue(Long.toString(myMoney));
+            double myMoney = menu.getSide() == TradeMenu.Side.LEFT ? leftMoney : rightMoney;
+            this.moneyBox.setValue(MoneyUtils.formatSmart(myMoney));
             this.lastSentMoney = myMoney;
         }
 
@@ -409,5 +396,23 @@ public class TradeScreen extends ResponsiveContainerScreen<TradeMenu> {
         gfx.vLine(x, y, y + h - 1, light);
         gfx.hLine(x, x + w - 1, y + h - 1, dark);
         gfx.vLine(x + w - 1, y, y + h - 1, dark);
+    }
+
+    private static String trimToWidth(Font font, String text, int maxWidth) {
+        if (text == null) return "";
+        if (maxWidth <= 0) return "";
+        if (font.width(text) <= maxWidth) return text;
+
+        final String ell = "\u2026"; // …
+        int ellW = font.width(ell);
+        if (ellW >= maxWidth) return ell;
+
+        String cut = font.plainSubstrByWidth(text, maxWidth - ellW);
+        return cut + ell;
+    }
+
+    private static void drawTrimmed(GuiGraphics gfx, Font font, String text, int x, int y, int maxWidth, int color) {
+        String t = trimToWidth(font, text, maxWidth);
+        gfx.drawString(font, t, x, y, color, false);
     }
 }

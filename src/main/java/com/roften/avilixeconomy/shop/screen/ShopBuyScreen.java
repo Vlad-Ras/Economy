@@ -3,8 +3,11 @@ package com.roften.avilixeconomy.shop.screen;
 import com.roften.avilixeconomy.client.ui.ShopUi;
 import com.roften.avilixeconomy.client.ui.UiKit;
 import com.roften.avilixeconomy.AvilixEconomy;
+import com.roften.avilixeconomy.compat.JeiCompat;
 import com.roften.avilixeconomy.network.NetworkRegistration;
 import com.roften.avilixeconomy.shop.menu.ShopBuyMenu;
+import com.roften.avilixeconomy.util.MoneyUtils;
+import com.roften.avilixeconomy.commission.CommissionManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -89,7 +92,8 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
 
     private void updateLayoutDimensions() {
         int margin = 12;
-        int available = Math.max(0, this.width - margin * 2 - LEFT_W - GAP_W);
+        int reserved = JeiCompat.reservedRightPixels();
+        int available = Math.max(0, (this.width - reserved) - margin * 2 - LEFT_W - GAP_W);
         this.rightW = clamp(available, RIGHT_MIN_W, RIGHT_MAX_W);
         this.imageWidth = LEFT_W + GAP_W + this.rightW;
         this.imageHeight = LEFT_H;
@@ -151,7 +155,8 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
         updateLayoutDimensions();
 
         int margin = 12;
-        float sx = (guiW - margin * 2) / (float) this.imageWidth;
+        int reserved = JeiCompat.reservedRightPixels();
+        float sx = ((guiW - reserved) - margin * 2) / (float) this.imageWidth;
         float sy = (guiH - margin * 2) / (float) this.imageHeight;
 
         float s = Math.min(1.0f, Math.min(sx, sy));
@@ -161,7 +166,10 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
         int scaledW = Math.round(this.imageWidth * this.uiScale);
         int scaledH = Math.round(this.imageHeight * this.uiScale);
 
-        this.uiLeft = (guiW - scaledW) / 2;
+        // If JEI is present, keep the UI inside the left part of the screen so it doesn't overlap
+        // JEI overlay on the right.
+        int reservedForJei = JeiCompat.reservedRightPixels();
+        this.uiLeft = ((guiW - reservedForJei) - scaledW) / 2;
         this.uiTop = (guiH - scaledH) / 2;
 
         this.leftPos = 0;
@@ -447,7 +455,8 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
         ShopUi.drawSubHeader(gfx, this.font, x + 10, y + templateY - hdrPad, LEFT_W - 20, SECTION_H, lotLabel);
         ShopUi.drawSlotGrid(gfx, x + templateX, y + templateY, 3, 3);
 
-        // Draw the lot items as a non-interactive preview (no stack count overlay).
+        // Draw the lot items as a non-interactive preview.
+        // IMPORTANT: show the required count per lot as the stack count overlay.
         // The actual container slots for the template are kept off-screen (see ShopBuyMenu).
         for (int i = 0; i < 9 && i < this.menu.slots.size(); i++) {
             ItemStack stack = this.menu.slots.get(i).getItem();
@@ -459,6 +468,8 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
             int sy = y + templateY + r * 18 + 1;
 
             gfx.renderItem(stack, sx, sy);
+            // Show the required item count per lot (e.g. "16") on the ghost preview.
+            gfx.renderItemDecorations(this.font, stack, sx, sy);
 
             // Hover tooltip for the ghost slot.
             int hx = x + templateX + c * 18;
@@ -487,7 +498,7 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
         textY += 14;
 
         gfx.drawString(this.font,
-                Component.translatable("screen.avilixeconomy.shop.price_value", Long.toString(this.menu.getPricePerLot())),
+                Component.translatable("screen.avilixeconomy.shop.price_value", MoneyUtils.formatSmart(this.menu.getPricePerLot())),
                 textX, textY, 0xCFCFCF, false);
         textY += 12;
 
@@ -508,17 +519,17 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
         }
 
         int lots = parseLots();
-        long total = (long) lots * this.menu.getPricePerLot();
+        double total = MoneyUtils.round2((double) lots * this.menu.getPricePerLot());
         gfx.drawString(this.font,
-                Component.translatable("screen.avilixeconomy.shop.total_value", Long.toString(total)),
+                Component.translatable("screen.avilixeconomy.shop.total_value", MoneyUtils.formatSmart(total)),
                 textX, textY, 0x80FF80, false);
         textY += 12;
 
         int commBps = this.menu.getCommissionBps();
         if (commBps > 0) {
             double pct = commBps / 100.0d;
-            long fee = (total * (long) commBps) / 10000L;
-            long net = Math.max(0L, total - fee);
+            double fee = CommissionManager.computeFee(total, commBps);
+            double net = Math.max(0.0, MoneyUtils.round2(total - fee));
 
             String pctStr = String.format(java.util.Locale.ROOT, "%.2f", pct);
             gfx.drawString(this.font,
@@ -527,8 +538,8 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
             textY += 12;
 
             Component netLine = sellingToShop
-                    ? Component.translatable("screen.avilixeconomy.shop.net_you_value", Long.toString(net))
-                    : Component.translatable("screen.avilixeconomy.shop.net_seller_value", Long.toString(net));
+                    ? Component.translatable("screen.avilixeconomy.shop.net_you_value", MoneyUtils.formatSmart(net))
+                    : Component.translatable("screen.avilixeconomy.shop.net_seller_value", MoneyUtils.formatSmart(net));
             gfx.drawString(this.font, netLine, textX, textY, 0xCFCFCF, false);
             textY += 12;
         }

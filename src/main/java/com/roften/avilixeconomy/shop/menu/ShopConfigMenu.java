@@ -7,6 +7,7 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.ContainerLevelAccess;
 import net.minecraft.world.inventory.DataSlot;
 import net.minecraft.world.inventory.Slot;
@@ -39,6 +40,10 @@ public class ShopConfigMenu extends AbstractContainerMenu {
     public static final int HOTBAR_Y = 252 + TOP_PAD + 24;
 
     public static final int GUI_HEIGHT = 276 + TOP_PAD + 24;
+
+    /** Slot counts inside the shop menu. */
+    private static final int TEMPLATE_SLOTS = 9;
+    private static final int STOCK_SLOTS = 54;
 
     private final ContainerLevelAccess access;
     private final BlockPos pos;
@@ -92,20 +97,20 @@ public class ShopConfigMenu extends AbstractContainerMenu {
 
         // sell price
         this.addDataSlot(new DataSlot(){
-            @Override public int get(){ long p=shop != null ? shop.getPricePerLot() : 0L; return (int)(p & 0xFFFFFFFFL);} 
+            @Override public int get(){ long bits = Double.doubleToRawLongBits(shop != null ? shop.getPricePerLot() : 0.0); return (int)(bits & 0xFFFFFFFFL);} 
             @Override public void set(int v){ sellLo=v; }
         });
         this.addDataSlot(new DataSlot(){
-            @Override public int get(){ long p=shop != null ? shop.getPricePerLot() : 0L; return (int)((p>>>32)&0xFFFFFFFFL);} 
+            @Override public int get(){ long bits = Double.doubleToRawLongBits(shop != null ? shop.getPricePerLot() : 0.0); return (int)((bits>>>32)&0xFFFFFFFFL);} 
             @Override public void set(int v){ sellHi=v; }
         });
         // buy price
         this.addDataSlot(new DataSlot(){
-            @Override public int get(){ long p=shop != null ? shop.getPriceBuyPerLot() : 0L; return (int)(p & 0xFFFFFFFFL);} 
+            @Override public int get(){ long bits = Double.doubleToRawLongBits(shop != null ? shop.getPriceBuyPerLot() : 0.0); return (int)(bits & 0xFFFFFFFFL);} 
             @Override public void set(int v){ buyLo=v; }
         });
         this.addDataSlot(new DataSlot(){
-            @Override public int get(){ long p=shop != null ? shop.getPriceBuyPerLot() : 0L; return (int)((p>>>32)&0xFFFFFFFFL);} 
+            @Override public int get(){ long bits = Double.doubleToRawLongBits(shop != null ? shop.getPriceBuyPerLot() : 0.0); return (int)((bits>>>32)&0xFFFFFFFFL);} 
             @Override public void set(int v){ buyHi=v; }
         });
         this.access = ContainerLevelAccess.create(inv.player.level(), pos);
@@ -117,7 +122,8 @@ public class ShopConfigMenu extends AbstractContainerMenu {
             for (int r = 0; r < 3; r++) {
                 for (int c = 0; c < 3; c++) {
                     int slot = r * 3 + c;
-                    this.addSlot(new SlotItemHandler(shop.getTemplate(), slot, tX + c * 18, tY + r * 18));
+                    // Template is phantom-only: it never consumes real items from the player inventory.
+                    this.addSlot(new GhostTemplateSlot(shop, slot, tX + c * 18, tY + r * 18));
                 }
             }
 
@@ -168,9 +174,9 @@ public class ShopConfigMenu extends AbstractContainerMenu {
     @Override
     public void broadcastChanges() {
         if (shop != null) {
-            long price = shop.getPricePerLot();
-            priceLo = (int) (price & 0xFFFFFFFFL);
-            priceHi = (int) ((price >>> 32) & 0xFFFFFFFFL);
+            long priceBits = Double.doubleToRawLongBits(shop.getPricePerLot());
+            priceLo = (int) (priceBits & 0xFFFFFFFFL);
+            priceHi = (int) ((priceBits >>> 32) & 0xFFFFFFFFL);
             availableLots = shop.getAvailableLots();
         }
         super.broadcastChanges();
@@ -180,8 +186,9 @@ public class ShopConfigMenu extends AbstractContainerMenu {
         return pos;
     }
 
-    public long getPricePerLot() {
-        return ((long) priceHi << 32) | (priceLo & 0xFFFFFFFFL);
+    public double getPricePerLot() {
+        long bits = ((long) priceHi << 32) | (priceLo & 0xFFFFFFFFL);
+        return Double.longBitsToDouble(bits);
     }
 
     public int getAvailableLots() {
@@ -193,6 +200,57 @@ public class ShopConfigMenu extends AbstractContainerMenu {
         return shop;
     }
 
+    /**
+     * Make template slots phantom-only: clicks copy the carried stack into the template,
+     * without moving any real items between inventories.
+     */
+    @Override
+    public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (shop != null && slotId >= 0 && slotId < TEMPLATE_SLOTS) {
+            // Ignore drag / hotbar swaps / throw / shift-move etc. for ghost slots.
+            if (clickType == ClickType.QUICK_CRAFT
+                    || clickType == ClickType.QUICK_MOVE
+                    || clickType == ClickType.SWAP
+                    || clickType == ClickType.THROW
+                    || clickType == ClickType.CLONE
+                    || clickType == ClickType.PICKUP_ALL) {
+                return;
+            }
+
+            net.minecraft.world.item.ItemStack carried = this.getCarried();
+            if (carried.isEmpty()) {
+                // Right-click with empty hand clears the ghost slot.
+                if (button == 1) {
+                    shop.getTemplate().setStackInSlot(slotId, net.minecraft.world.item.ItemStack.EMPTY);
+                    markShopDirtyAndSync();
+                }
+                return;
+            }
+
+            // Left click = copy full carried count; Right click = set count to 1.
+            net.minecraft.world.item.ItemStack ghost = carried.copy();
+            int count = (button == 1) ? 1 : carried.getCount();
+            if (count < 1) count = 1;
+            if (count > ghost.getMaxStackSize()) count = ghost.getMaxStackSize();
+            ghost.setCount(count);
+
+            shop.getTemplate().setStackInSlot(slotId, ghost);
+            markShopDirtyAndSync();
+            return;
+        }
+
+        super.clicked(slotId, button, clickType, player);
+    }
+
+    private void markShopDirtyAndSync() {
+        if (shop == null) return;
+        shop.setChanged();
+        var lvl = shop.getLevel();
+        if (lvl != null && !lvl.isClientSide) {
+            lvl.sendBlockUpdated(shop.getBlockPos(), shop.getBlockState(), shop.getBlockState(), 3);
+        }
+    }
+
     
 
     public int getCommissionSellBps() { return commissionSellBps; }
@@ -200,11 +258,13 @@ public class ShopConfigMenu extends AbstractContainerMenu {
 
 public int getMode(){ return syncedMode; }
 
-public long getSellPriceSynced(){ return ((long)sellHi<<32) | (sellLo & 0xFFFFFFFFL); }
+public double getSellPriceSynced(){ long bits = ((long)sellHi<<32) | (sellLo & 0xFFFFFFFFL);
+        return Double.longBitsToDouble(bits); }
 
-public long getBuyPriceSynced(){ return ((long)buyHi<<32) | (buyLo & 0xFFFFFFFFL); }
+public double getBuyPriceSynced(){ long bits = ((long)buyHi<<32) | (buyLo & 0xFFFFFFFFL);
+        return Double.longBitsToDouble(bits); }
 
-public long getActivePriceSynced(){ return getMode()==1 ? getBuyPriceSynced() : getSellPriceSynced(); }
+public double getActivePriceSynced(){ return getMode()==1 ? getBuyPriceSynced() : getSellPriceSynced(); }
 @Override
     public boolean stillValid(Player player) {
         if (shop != null && !shop.isOwner(player)) return false;
@@ -215,20 +275,24 @@ public long getActivePriceSynced(){ return getMode()==1 ? getBuyPriceSynced() : 
     public net.minecraft.world.item.ItemStack quickMoveStack(Player player, int index) {
         // Simple shift-click handling.
         net.minecraft.world.item.ItemStack empty = net.minecraft.world.item.ItemStack.EMPTY;
+
+        // Never shift-move from phantom template.
+        if (index >= 0 && index < TEMPLATE_SLOTS) return empty;
+
         Slot slot = this.slots.get(index);
         if (slot == null || !slot.hasItem()) return empty;
         net.minecraft.world.item.ItemStack stack = slot.getItem();
         net.minecraft.world.item.ItemStack copy = stack.copy();
 
         // Shop slots: 0..(9+54-1)=62, player inv starts after that.
-        int shopSlots = 9 + 54;
+        int shopSlots = TEMPLATE_SLOTS + STOCK_SLOTS;
         if (index < shopSlots) {
             if (!this.moveItemStackTo(stack, shopSlots, this.slots.size(), true)) {
                 return empty;
             }
         } else {
             // from player to stock only (not template)
-            if (!this.moveItemStackTo(stack, 9, shopSlots, false)) {
+            if (!this.moveItemStackTo(stack, TEMPLATE_SLOTS, shopSlots, false)) {
                 return empty;
             }
         }
@@ -239,5 +303,22 @@ public long getActivePriceSynced(){ return getMode()==1 ? getBuyPriceSynced() : 
             slot.setChanged();
         }
         return copy;
+    }
+
+    /** Non-interactive slot used to display template (ghost) items. */
+    private static class GhostTemplateSlot extends SlotItemHandler {
+        private GhostTemplateSlot(ShopBlockEntity shop, int index, int x, int y) {
+            super(shop.getTemplate(), index, x, y);
+        }
+
+        @Override
+        public boolean mayPlace(net.minecraft.world.item.ItemStack stack) {
+            return false;
+        }
+
+        @Override
+        public boolean mayPickup(Player player) {
+            return false;
+        }
     }
 }

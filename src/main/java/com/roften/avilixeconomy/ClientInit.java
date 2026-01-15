@@ -16,6 +16,8 @@ public final class ClientInit {
     public static void init(IEventBus modBus) {
         // Register client-only ModBus events
         modBus.addListener(ClientModEvents::onRegisterScreens);
+        modBus.addListener(ClientModEvents::onRegisterRenderers);
+        modBus.addListener(ClientModEvents::onClientSetup);
 
         // Register HUD (game event bus)
         NeoForge.EVENT_BUS.register(new EconomyHud());

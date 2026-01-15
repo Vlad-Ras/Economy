@@ -1,6 +1,7 @@
 package com.roften.avilixeconomy.database;
 
 import com.roften.avilixeconomy.config.AvilixEconomyCommonConfig;
+import com.roften.avilixeconomy.util.MoneyUtils;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
@@ -8,6 +9,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.ArrayList;
@@ -55,7 +57,7 @@ public class DatabaseManager {
                     CREATE TABLE IF NOT EXISTS economy (
                         uuid VARCHAR(36) PRIMARY KEY,
                         name VARCHAR(32) NOT NULL,
-                        balance BIGINT NOT NULL DEFAULT 500
+                        balance DECIMAL(18,2) NOT NULL DEFAULT 500.00
                     )
                 """)) {
                 st.executeUpdate();
@@ -76,9 +78,9 @@ public class DatabaseManager {
                         buyer_uuid VARCHAR(36) NOT NULL,
                         buyer_name VARCHAR(32) NOT NULL,
                         trade_type VARCHAR(8) NOT NULL DEFAULT 'SELL',
-                        price_per_lot BIGINT NOT NULL,
+                        price_per_lot DECIMAL(18,2) NOT NULL,
                         lots INT NOT NULL,
-                        total_price BIGINT NOT NULL,
+                        total_price DECIMAL(18,2) NOT NULL,
                         items_json MEDIUMTEXT NOT NULL,
                         PRIMARY KEY (id),
                         INDEX idx_owner_uuid_time (owner_uuid, created_at),
@@ -91,6 +93,7 @@ public class DatabaseManager {
 
             // Миграции для уже существующих таблиц
             ensureShopSalesColumns(c);
+            ensureMoneyColumnTypes(c);
 
             // Индексы (ускоряет VIEW и фильтрацию по trade_type)
             ensureIndexes(c);
@@ -173,6 +176,26 @@ public class DatabaseManager {
 
     }
 
+
+    /**
+     * Ensure DECIMAL(18,2) for money columns in existing installations.
+     * Safe to run on every startup.
+     */
+    private static void ensureMoneyColumnTypes(Connection c) throws SQLException {
+        // economy.balance
+        try (PreparedStatement st = c.prepareStatement("ALTER TABLE economy MODIFY COLUMN balance DECIMAL(18,2) NOT NULL DEFAULT 500.00")) {
+            st.executeUpdate();
+        } catch (Exception ignored) {}
+
+        // shop_sales money columns
+        try (PreparedStatement st = c.prepareStatement("ALTER TABLE shop_sales MODIFY COLUMN price_per_lot DECIMAL(18,2) NOT NULL")) {
+            st.executeUpdate();
+        } catch (Exception ignored) {}
+        try (PreparedStatement st = c.prepareStatement("ALTER TABLE shop_sales MODIFY COLUMN total_price DECIMAL(18,2) NOT NULL")) {
+            st.executeUpdate();
+        } catch (Exception ignored) {}
+    }
+
     private static void ensureIndexes(Connection c) throws SQLException {
         // Для запросов вида: WHERE trade_type='SELL' ORDER BY created_at DESC
         // Один индекс покрывает оба view (shop_sales_log_sell / shop_sales_log_buy).
@@ -227,9 +250,9 @@ public class DatabaseManager {
             UUID buyerUuid,
             String buyerName,
             String tradeType,
-            long pricePerLot,
+            double pricePerLot,
             int lots,
-            long totalPrice,
+            double totalPrice,
             String itemsJson
     ) {
         String sql = "INSERT INTO shop_sales(created_at, world, x, y, z, block_id, owner_uuid, owner_name, buyer_uuid, buyer_name, trade_type, price_per_lot, lots, total_price, items_json) " +
@@ -249,9 +272,9 @@ public class DatabaseManager {
             ps.setString(9, buyerUuid != null ? buyerUuid.toString() : "");
             ps.setString(10, buyerName != null ? buyerName : "");
             ps.setString(11, tradeType != null ? tradeType : "SELL");
-            ps.setLong(12, pricePerLot);
+            ps.setBigDecimal(12, MoneyUtils.toDb(pricePerLot));
             ps.setInt(13, lots);
-            ps.setLong(14, totalPrice);
+            ps.setBigDecimal(14, MoneyUtils.toDb(totalPrice));
             ps.setString(15, itemsJson != null ? itemsJson : "[]");
             ps.executeUpdate();
 
@@ -272,9 +295,9 @@ public class DatabaseManager {
             UUID buyerUuid,
             String buyerName,
             String tradeType,
-            long pricePerLot,
+            double pricePerLot,
             int lots,
-            long totalPrice,
+            double totalPrice,
             String itemsJson
     ) {
         logShopSale(Instant.now().toEpochMilli(), worldId, x, y, z, blockId, ownerUuid, ownerName, buyerUuid, buyerName, tradeType,
@@ -294,7 +317,7 @@ public class DatabaseManager {
         }
     }
 
-    public static long getBalanceDirect(UUID uuid) {
+    public static double getBalanceDirect(UUID uuid) {
         String sql = "SELECT balance FROM economy WHERE uuid = ?";
 
         try (Connection conn = getConnection();
@@ -304,13 +327,13 @@ public class DatabaseManager {
             ResultSet rs = ps.executeQuery();
 
             if (rs.next()) {
-                return rs.getLong("balance");
+                return MoneyUtils.fromDb(rs.getBigDecimal("balance"));
             }
 
         } catch (Exception e) {
             e.printStackTrace();
         }
-        return 0L;
+        return 0.0;
     }
 
     public static String getPlayerNameDirect(UUID uuid) {
@@ -331,7 +354,7 @@ public class DatabaseManager {
         return null;
     }
 
-    public static void createPlayerRecord(UUID uuid, String name, long startBalance) throws SQLException {
+    public static void createPlayerRecord(UUID uuid, String name, double startBalance) throws SQLException {
         try (Connection c = getConnection();
              PreparedStatement st = c.prepareStatement(
                      "INSERT INTO economy(uuid, name, balance) VALUES (?, ?, ?)"
@@ -339,7 +362,7 @@ public class DatabaseManager {
 
             st.setString(1, uuid.toString());
             st.setString(2, name);
-            st.setLong(3, startBalance);
+            st.setBigDecimal(3, MoneyUtils.toDb(startBalance));
             st.executeUpdate();
         }
     }
@@ -360,7 +383,7 @@ public class DatabaseManager {
     /**
      * Ensures an economy record exists for the given UUID (used for server commission account).
      */
-    public static void ensurePlayerRecord(UUID uuid, String name, long initialBalance) {
+    public static void ensurePlayerRecord(UUID uuid, String name, double initialBalance) {
         try {
             if (!recordExists(uuid)) {
                 createPlayerRecord(uuid, name, initialBalance);
@@ -381,7 +404,7 @@ public static void shutdown() {
 
 
 // ======== SHOP SALES QUERY (for GUI history) ========
-public record ShopSaleRow(long createdAtMillis, String tradeType, String counterpartyName, int lots, long totalPrice, long pricePerLot, String itemsSummary) {}
+public record ShopSaleRow(long createdAtMillis, String tradeType, String counterpartyName, int lots, double totalPrice, double pricePerLot, String itemsSummary) {}
 
 public record ShopSalesPage(List<ShopSaleRow> rows, boolean hasMore) {}
 
@@ -423,8 +446,8 @@ public static ShopSalesPage getShopSalesPage(String worldId, int x, int y, int z
                 String tradeType = rs.getString("trade_type");
                 String counterparty = rs.getString("buyer_name");
                 int lots = rs.getInt("lots");
-                long total = rs.getLong("total_price");
-                long ppl = rs.getLong("price_per_lot");
+                double total = MoneyUtils.fromDb(rs.getBigDecimal("total_price"));
+                double ppl = MoneyUtils.fromDb(rs.getBigDecimal("price_per_lot"));
                 String itemsJson = rs.getString("items_json");
                 String summary = summarizeItems(itemsJson);
 

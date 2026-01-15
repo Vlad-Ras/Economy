@@ -1,5 +1,6 @@
 package com.roften.avilixeconomy.client;
 
+import com.roften.avilixeconomy.util.MoneyUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -17,12 +18,12 @@ public class EconomyHud {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
 
-        long bal = ClientBalanceData.getBalance();
+        double bal = ClientBalanceData.getBalance();
 
         GuiGraphics g = event.getGuiGraphics();
         Font font = mc.font;
 
-        String text = "Баланс: " + bal;
+        String text = "Баланс: " + MoneyUtils.formatSmart(bal);
 
         int x = 10;
         int y = 10;

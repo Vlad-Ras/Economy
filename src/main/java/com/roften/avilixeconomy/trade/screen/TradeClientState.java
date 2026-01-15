@@ -12,8 +12,8 @@ public record TradeClientState(
         int sessionId,
         String leftName,
         String rightName,
-        long leftMoney,
-        long rightMoney,
+        double leftMoney,
+        double rightMoney,
         boolean leftReady,
         boolean rightReady
 ) {

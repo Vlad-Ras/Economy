@@ -4,11 +4,14 @@ import com.roften.avilixeconomy.EconomyData;
 import com.roften.avilixeconomy.commission.CommissionManager;
 import com.roften.avilixeconomy.config.AvilixEconomyCommonConfig;
 import com.roften.avilixeconomy.database.DatabaseManager;
+import com.roften.avilixeconomy.util.MoneyUtils;
 import com.roften.avilixeconomy.registry.ModBlockEntities;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Containers;
 import net.minecraft.world.entity.player.Player;
@@ -40,14 +43,15 @@ public class ShopBlockEntity extends BlockEntity {
     @Nullable
     private String ownerName;
 
-    private long priceSellPerLot;
-    private long priceBuyPerLot;
+    private double priceSellPerLot;
+    private double priceBuyPerLot;
     private boolean buyMode;
 
     private final ItemStackHandler template = new ItemStackHandler(TEMPLATE_SLOTS) {
         @Override
         protected void onContentsChanged(int slot) {
             setChanged();
+            syncToClient();
         }
     };
 
@@ -55,6 +59,7 @@ public class ShopBlockEntity extends BlockEntity {
         @Override
         protected void onContentsChanged(int slot) {
             setChanged();
+            syncToClient();
         }
     };
 
@@ -73,22 +78,24 @@ public class ShopBlockEntity extends BlockEntity {
         return stock;
     }
 
-    public long getPricePerLot() {
+    public double getPricePerLot() {
         return priceSellPerLot;
     }
 
-    public void setPricePerLot(long priceSellPerLot) {
-        this.priceSellPerLot = Math.max(0L, priceSellPerLot);
+    public void setPricePerLot(double priceSellPerLot) {
+        this.priceSellPerLot = Math.max(0.0, MoneyUtils.round2(priceSellPerLot));
         setChanged();
+        syncToClient();
     }
 
-public long getPriceBuyPerLot() {
+public double getPriceBuyPerLot() {
     return priceBuyPerLot;
 }
 
-public void setPriceBuyPerLot(long priceBuyPerLot) {
-    this.priceBuyPerLot = Math.max(0L, priceBuyPerLot);
+public void setPriceBuyPerLot(double priceBuyPerLot) {
+    this.priceBuyPerLot = Math.max(0.0, MoneyUtils.round2(priceBuyPerLot));
     setChanged();
+    syncToClient();
 }
 
 public boolean isBuyMode() {
@@ -98,9 +105,10 @@ public boolean isBuyMode() {
 public void setBuyMode(boolean buyMode) {
     this.buyMode = buyMode;
     setChanged();
+    syncToClient();
 }
 
-public long getActivePricePerLot() {
+public double getActivePricePerLot() {
     return buyMode ? priceBuyPerLot : priceSellPerLot;
 }
 
@@ -108,7 +116,7 @@ public int getActiveModeInt() {
     return buyMode ? 1 : 0;
 }
 
-public void setPriceForMode(int mode, long price) {
+public void setPriceForMode(int mode, double price) {
     if (mode == 1) setPriceBuyPerLot(price);
     else setPricePerLot(price);
 }
@@ -118,6 +126,7 @@ public void setPriceForMode(int mode, long price) {
     public void setOwnerName(@Nullable String ownerName) {
         this.ownerName = (ownerName == null || ownerName.isBlank()) ? null : ownerName;
         setChanged();
+        syncToClient();
     }
 
     @Nullable
@@ -128,6 +137,7 @@ public void setPriceForMode(int mode, long price) {
     public void setOwner(UUID owner) {
         this.owner = owner;
         setChanged();
+        syncToClient();
     }
 
     @Nullable
@@ -169,7 +179,11 @@ public void setPriceForMode(int mode, long price) {
         return templateEmpty();
     }
 
-    private int countInStock(net.minecraft.world.item.ItemStack sample) {
+    /**
+     * Counts how many items matching {@code sample} exist in the shop stock.
+     * This is used both server-side (logic) and client-side (rendering overlay).
+     */
+    public int countInStock(net.minecraft.world.item.ItemStack sample) {
         int total = 0;
         for (int i = 0; i < stock.getSlots(); i++) {
             var s = stock.getStackInSlot(i);
@@ -210,9 +224,8 @@ public void setPriceForMode(int mode, long price) {
         if (available <= 0) return false;
         if (lots > available) return false;
 
-        long usedPricePerLot = buyMode ? priceBuyPerLot : priceSellPerLot;
-        long totalPrice = usedPricePerLot * (long) lots;
-        if (totalPrice < 0) totalPrice = Long.MAX_VALUE; // overflow guard
+        double usedPricePerLot = buyMode ? priceBuyPerLot : priceSellPerLot;
+        double totalPrice = MoneyUtils.round2(usedPricePerLot * (double) lots);
 
         if (owner == null) return false;
 
@@ -222,8 +235,8 @@ public void setPriceForMode(int mode, long price) {
             return false;
         }
 
-        long balance = EconomyData.getBalance(buyer.getUUID());
-        if (balance < totalPrice) return false;
+        double balance = EconomyData.getBalance(buyer.getUUID());
+        if (balance + 1e-9 < totalPrice) return false;
 
         // First, reserve/remove items from stock.
         net.minecraft.world.item.ItemStack[] toGive = new net.minecraft.world.item.ItemStack[template.getSlots()];
@@ -255,8 +268,8 @@ public void setPriceForMode(int mode, long price) {
             serverUuid = new UUID(0L, 0L);
         }
         int commBps = getSellCommissionBps();
-        long fee = CommissionManager.computeFee(totalPrice, commBps);
-        long ownerNet = Math.max(0L, totalPrice - fee);
+        double fee = CommissionManager.computeFee(totalPrice, commBps);
+        double ownerNet = Math.max(0.0, MoneyUtils.round2(totalPrice - fee));
         if (!EconomyData.paySplit(buyer.getUUID(), owner, ownerNet, serverUuid, fee)) {
             // rollback items
             for (var st : toGive) {
@@ -285,9 +298,9 @@ public void setPriceForMode(int mode, long price) {
             final String itemsJson = buildItemsJson(toGive, lots);
 
             // Capture values for async lambda (must be final / effectively final)
-            final long pricePerLotFinal = usedPricePerLot;
+            final double pricePerLotFinal = usedPricePerLot;
             final int lotsFinal = lots;
-            final long totalPriceFinal = totalPrice;
+            final double totalPriceFinal = totalPrice;
 
                         CompletableFuture.runAsync(() -> DatabaseManager.logShopSaleNow(
                     worldId, sx, sy, sz, blockIdFinal,
@@ -321,8 +334,8 @@ public boolean trySellToShop(ServerPlayer seller, int lots) {
 	        seller.displayClientMessage(net.minecraft.network.chat.Component.translatable("msg.avilixeconomy.shop.self_trade"), true);
 	        return false;
 	    }
-    long pricePerLot = priceBuyPerLot;
-    if (pricePerLot <= 0) {
+    double pricePerLot = priceBuyPerLot;
+    if (pricePerLot <= 0.0) {
         seller.displayClientMessage(net.minecraft.network.chat.Component.literal("Цена скупки не установлена."), true);
         return false;
     }
@@ -344,14 +357,9 @@ public boolean trySellToShop(ServerPlayer seller, int lots) {
         return false;
     }
     // Check owner has money
-    long totalPrice;
-    try {
-        totalPrice = Math.multiplyExact(pricePerLot, (long) lots);
-    } catch (ArithmeticException ex) {
-        totalPrice = Long.MAX_VALUE;
-    }
-    long ownerBal = EconomyData.getBalance(owner);
-    long maxLotsByMoney = ownerBal / pricePerLot;
+    double totalPrice = MoneyUtils.round2(pricePerLot * (double) lots);
+    double ownerBal = EconomyData.getBalance(owner);
+    long maxLotsByMoney = (pricePerLot <= 0.0) ? 0L : (long) Math.floor(ownerBal / pricePerLot);
     if (lots > maxLotsByMoney) {
         seller.displayClientMessage(net.minecraft.network.chat.Component.literal("У владельца недостаточно средств. Доступно лотов: " + maxLotsByMoney), true);
         return false;
@@ -379,8 +387,8 @@ public boolean trySellToShop(ServerPlayer seller, int lots) {
             serverUuid = new UUID(0L, 0L);
         }
         int commBps = getBuyCommissionBps();
-        long fee = CommissionManager.computeFee(totalPrice, commBps);
-        long sellerNet = Math.max(0L, totalPrice - fee);
+        double fee = CommissionManager.computeFee(totalPrice, commBps);
+        double sellerNet = Math.max(0.0, MoneyUtils.round2(totalPrice - fee));
         boolean paid = EconomyData.paySplit(owner, seller.getUUID(), sellerNet, serverUuid, fee);
     if (!paid) {
         // rollback: remove inserted and return, but safest: attempt to refund items to seller
@@ -403,9 +411,9 @@ public boolean trySellToShop(ServerPlayer seller, int lots) {
         final int sz = worldPosition.getZ();
         final String blockIdFinal = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(getBlockState().getBlock()).toString();
         final String itemsJson = buildItemsJson(lot.toArray(new net.minecraft.world.item.ItemStack[0]), lots);
-        final long pricePerLotFinal = pricePerLot;
+        final double pricePerLotFinal = pricePerLot;
         final int lotsFinal = lots;
-        final long totalPriceFinal = totalPrice;
+        final double totalPriceFinal = totalPrice;
         java.util.concurrent.CompletableFuture.runAsync(() -> DatabaseManager.logShopSaleNow(
                 worldId, sx, sy, sz, blockIdFinal,
                 ownerUuid, ownerNameFinal,
@@ -423,10 +431,10 @@ public int getAvailableBuyLots() {
     if (!buyMode) return 0;
     java.util.List<net.minecraft.world.item.ItemStack> lot = getTemplateStacks();
     if (lot.isEmpty()) return 0;
-    long price = priceBuyPerLot;
-    if (price <= 0 || owner == null) return 0;
-    long ownerBal = EconomyData.getBalance(owner);
-    long byMoney = ownerBal / price;
+    double price = priceBuyPerLot;
+    if (price <= 0.0 || owner == null) return 0;
+    double ownerBal = EconomyData.getBalance(owner);
+    long byMoney = (price <= 0.0) ? 0L : (long) Math.floor(ownerBal / price);
     int bySpace = getAvailableLotsBySpace(lot);
     long min = Math.min(byMoney, (long) bySpace);
     return (int) Math.min(Integer.MAX_VALUE, min);
@@ -636,13 +644,39 @@ private int getAvailableLotsBySpace(java.util.List<net.minecraft.world.item.Item
         return out;
     }
 
+    // ===== Client sync for in-world overlays (items/counts) =====
+
+    private void syncToClient() {
+        if (level == null) return;
+        if (level.isClientSide) return;
+        // Triggers a block entity data packet (see getUpdatePacket/getUpdateTag below)
+        level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+    }
+
+    @Override
+    public ClientboundBlockEntityDataPacket getUpdatePacket() {
+        return ClientboundBlockEntityDataPacket.create(this);
+    }
+
+    @Override
+    public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
+        CompoundTag tag = new CompoundTag();
+        this.saveAdditional(tag, registries);
+        return tag;
+    }
+
+    @Override
+    public void handleUpdateTag(CompoundTag tag, HolderLookup.Provider registries) {
+        this.loadAdditional(tag, registries);
+    }
+
     @Override
     protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
         super.saveAdditional(tag, registries);
         if (owner != null) tag.putUUID(TAG_OWNER, owner);
         if (ownerName != null && !ownerName.isBlank()) tag.putString(TAG_OWNER_NAME, ownerName);
-        tag.putLong(TAG_PRICE, priceSellPerLot);
-        tag.putLong(TAG_PRICE_BUY, priceBuyPerLot);
+        tag.putDouble(TAG_PRICE, MoneyUtils.round2(priceSellPerLot));
+        tag.putDouble(TAG_PRICE_BUY, MoneyUtils.round2(priceBuyPerLot));
         tag.putBoolean(TAG_MODE, buyMode);
         tag.put(TAG_TEMPLATE, template.serializeNBT(registries));
         tag.put(TAG_STOCK, stock.serializeNBT(registries));
@@ -653,11 +687,38 @@ private int getAvailableLotsBySpace(java.util.List<net.minecraft.world.item.Item
         super.loadAdditional(tag, registries);
         owner = tag.hasUUID(TAG_OWNER) ? tag.getUUID(TAG_OWNER) : null;
         ownerName = tag.contains(TAG_OWNER_NAME) ? tag.getString(TAG_OWNER_NAME) : null;
-        priceSellPerLot = tag.getLong(TAG_PRICE);
-        priceBuyPerLot = tag.contains(TAG_PRICE_BUY) ? tag.getLong(TAG_PRICE_BUY) : priceSellPerLot;
+        priceSellPerLot = readMoneyTag(tag, TAG_PRICE, 0.0);
+        priceBuyPerLot = tag.contains(TAG_PRICE_BUY) ? readMoneyTag(tag, TAG_PRICE_BUY, priceSellPerLot) : priceSellPerLot;
         buyMode = tag.contains(TAG_MODE) && tag.getBoolean(TAG_MODE);
         if (tag.contains(TAG_TEMPLATE)) template.deserializeNBT(registries, tag.getCompound(TAG_TEMPLATE));
         if (tag.contains(TAG_STOCK)) stock.deserializeNBT(registries, tag.getCompound(TAG_STOCK));
+    }
+
+    /**
+     * Backward compatible money reader:
+     *  - new saves store money as double (TAG_DOUBLE)
+     *  - old saves may store as long/int
+     *  - some edge cases store as string
+     */
+    private static double readMoneyTag(CompoundTag tag, String key, double def) {
+        if (tag == null || key == null) return MoneyUtils.round2(def);
+
+        if (tag.contains(key, Tag.TAG_DOUBLE)) {
+            return MoneyUtils.round2(tag.getDouble(key));
+        }
+        if (tag.contains(key, Tag.TAG_FLOAT)) {
+            return MoneyUtils.round2(tag.getFloat(key));
+        }
+        if (tag.contains(key, Tag.TAG_LONG)) {
+            return MoneyUtils.round2((double) tag.getLong(key));
+        }
+        if (tag.contains(key, Tag.TAG_INT)) {
+            return MoneyUtils.round2((double) tag.getInt(key));
+        }
+        if (tag.contains(key, Tag.TAG_STRING)) {
+            return MoneyUtils.parseSmart(tag.getString(key));
+        }
+        return MoneyUtils.round2(def);
     }
 
     /** Insert-only wrapper for automation to prevent theft via hoppers. */

@@ -26,8 +26,8 @@ public final class TradeSession {
     private final TradeOfferContainer leftOffer;
     private final TradeOfferContainer rightOffer;
 
-    private long leftMoney;
-    private long rightMoney;
+    private double leftMoney;
+    private double rightMoney;
 
     private boolean leftReady;
     private boolean rightReady;
@@ -70,9 +70,9 @@ public final class TradeSession {
         );
     }
 
-    public synchronized void updateMoney(ServerPlayer player, long amount) {
+    public synchronized void updateMoney(ServerPlayer player, double amount) {
         if (ended) return;
-        if (amount < 0) amount = 0;
+        if (amount < 0) amount = 0.0; amount = com.roften.avilixeconomy.util.MoneyUtils.round2(amount);
 
         if (player.getUUID().equals(left.getUUID())) {
             leftMoney = amount;
@@ -194,25 +194,25 @@ public final class TradeSession {
         }
 
         // Проверка балансов (без доверия к клиенту)
-        long leftBal = EconomyData.getBalance(left.getUUID());
-        long rightBal = EconomyData.getBalance(right.getUUID());
-        if (leftBal < leftMoney) {
+        double leftBal = EconomyData.getBalance(left.getUUID());
+        double rightBal = EconomyData.getBalance(right.getUUID());
+        if (leftBal + 1e-9 < leftMoney) {
             cancel("Трейд отменён: у " + left.getName().getString() + " недостаточно средств.");
             return;
         }
-        if (rightBal < rightMoney) {
+        if (rightBal + 1e-9 < rightMoney) {
             cancel("Трейд отменён: у " + right.getName().getString() + " недостаточно средств.");
             return;
         }
 
         // Переводим только разницу (чтобы не было 2-х транзакций)
-        long net = leftMoney - rightMoney;
-        if (net > 0) {
+        double net = com.roften.avilixeconomy.util.MoneyUtils.round2(leftMoney - rightMoney);
+        if (net > 0.0) {
             if (!EconomyData.pay(left.getUUID(), right.getUUID(), net)) {
                 cancel("Трейд отменён: не удалось перевести валюту.");
                 return;
             }
-        } else if (net < 0) {
+        } else if (net < 0.0) {
             if (!EconomyData.pay(right.getUUID(), left.getUUID(), -net)) {
                 cancel("Трейд отменён: не удалось перевести валюту.");
                 return;

@@ -57,5 +57,6 @@
   "screen.avilixeconomy.shop.commission_value": "Комиссия: %s%%",
   "screen.avilixeconomy.shop.net_you_value": "Вы получите: %s",
   "screen.avilixeconomy.shop.net_seller_value": "Продавец получит: %s",
-  "screen.avilixeconomy.shop.commission_config_value": "Комиссия (SELL/BUY): %s%% / %s%%"
+  "screen.avilixeconomy.shop.commission_config_value": "Комиссия (SELL/BUY): %s%% / %s%%",
+  "msg.avilixeconomy.shop.break_protected": "Сломать магазин в креативе можно только присев (Shift)."
 }

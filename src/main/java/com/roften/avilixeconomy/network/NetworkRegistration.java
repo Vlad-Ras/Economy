@@ -91,13 +91,13 @@ public record ShopSellPayload(BlockPos pos, int lots) implements CustomPacketPay
     public Type<? extends CustomPacketPayload> type() { return TYPE; }
 }
 
-public record BalancePayload(long balance) implements CustomPacketPayload {
+public record BalancePayload(double balance) implements CustomPacketPayload {
         public static final Type<BalancePayload> TYPE = new Type<>(BALANCE_PACKET_ID);
 
         public static final StreamCodec<RegistryFriendlyByteBuf, BalancePayload> CODEC =
                 StreamCodec.of(
-                        (buf, payload) -> buf.writeLong(payload.balance),
-                        buf -> new BalancePayload(buf.readLong())
+                        (buf, payload) -> buf.writeDouble(payload.balance),
+                        buf -> new BalancePayload(buf.readDouble())
                 );
 
         @Override
@@ -111,8 +111,8 @@ public record BalancePayload(long balance) implements CustomPacketPayload {
             int sessionId,
             String leftName,
             String rightName,
-            long leftMoney,
-            long rightMoney,
+            double leftMoney,
+            double rightMoney,
             boolean leftReady,
             boolean rightReady
     ) implements CustomPacketPayload {
@@ -124,8 +124,8 @@ public record BalancePayload(long balance) implements CustomPacketPayload {
                             buf.writeInt(p.sessionId);
                             buf.writeUtf(p.leftName);
                             buf.writeUtf(p.rightName);
-                            buf.writeLong(p.leftMoney);
-                            buf.writeLong(p.rightMoney);
+                            buf.writeDouble(p.leftMoney);
+                            buf.writeDouble(p.rightMoney);
                             buf.writeBoolean(p.leftReady);
                             buf.writeBoolean(p.rightReady);
                         },
@@ -133,8 +133,8 @@ public record BalancePayload(long balance) implements CustomPacketPayload {
                                 buf.readInt(),
                                 buf.readUtf(),
                                 buf.readUtf(),
-                                buf.readLong(),
-                                buf.readLong(),
+                                buf.readDouble(),
+                                buf.readDouble(),
                                 buf.readBoolean(),
                                 buf.readBoolean()
                         )
@@ -147,16 +147,16 @@ public record BalancePayload(long balance) implements CustomPacketPayload {
     }
 
     // ===== TRADE UPDATE MONEY (C->S) =====
-    public record TradeUpdateMoneyPayload(int sessionId, long money) implements CustomPacketPayload {
+    public record TradeUpdateMoneyPayload(int sessionId, double money) implements CustomPacketPayload {
         public static final Type<TradeUpdateMoneyPayload> TYPE = new Type<>(TRADE_UPDATE_MONEY_PACKET_ID);
 
         public static final StreamCodec<RegistryFriendlyByteBuf, TradeUpdateMoneyPayload> CODEC =
                 StreamCodec.of(
                         (buf, p) -> {
                             buf.writeInt(p.sessionId);
-                            buf.writeLong(p.money);
+                            buf.writeDouble(p.money);
                         },
-                        buf -> new TradeUpdateMoneyPayload(buf.readInt(), buf.readLong())
+                        buf -> new TradeUpdateMoneyPayload(buf.readInt(), buf.readDouble())
                 );
 
         @Override
@@ -218,7 +218,7 @@ public record BalancePayload(long balance) implements CustomPacketPayload {
     }
 
     // ===== SHOP SET PRICE (C->S) =====
-    public record ShopSetPricePayload(BlockPos pos, int mode, long price) implements CustomPacketPayload {
+    public record ShopSetPricePayload(BlockPos pos, int mode, double price) implements CustomPacketPayload {
         public static final Type<ShopSetPricePayload> TYPE = new Type<>(SHOP_SET_PRICE_PACKET_ID);
 
         public static final StreamCodec<RegistryFriendlyByteBuf, ShopSetPricePayload> CODEC =
@@ -226,9 +226,9 @@ public record BalancePayload(long balance) implements CustomPacketPayload {
                         (buf, p) -> {
                             buf.writeBlockPos(p.pos());
                             buf.writeInt(p.mode());
-                            buf.writeLong(p.price());
+                            buf.writeDouble(p.price());
                         },
-                        buf -> new ShopSetPricePayload(buf.readBlockPos(), buf.readInt(), buf.readLong())
+                        buf -> new ShopSetPricePayload(buf.readBlockPos(), buf.readInt(), buf.readDouble())
                 );
 
         @Override
@@ -378,9 +378,9 @@ registrar.playToServer(
                     if (!(sp.level().getBlockEntity(payload.pos()) instanceof ShopBlockEntity shop)) return;
                     if (!shop.isOwner(sp)) return;
 
-                    long price = Math.max(0L, payload.price());
+                    double price = Math.max(0.0, payload.price());
                     shop.setPriceForMode(payload.mode(), price);
-                    sp.displayClientMessage(Component.translatable("msg.avilixeconomy.shop.price_set", price), true);
+                    sp.displayClientMessage(Component.translatable("msg.avilixeconomy.shop.price_set", com.roften.avilixeconomy.util.MoneyUtils.formatSmart(price)), true);
                 })
         );
 
@@ -448,18 +448,11 @@ registrar.playToServer(
                         return;
                     }
 
-                    long pricePer = shop.getActivePricePerLot();
-                    long total;
-                    try {
-                        total = Math.multiplyExact(pricePer, (long) lots);
-                    } catch (ArithmeticException ex) {
-                        sp.displayClientMessage(Component.translatable("msg.avilixeconomy.shop.too_expensive"), true);
-                        return;
-                    }
-
-                    long bal = EconomyData.getBalance(sp.getUUID());
-                    if (bal < total) {
-                        sp.displayClientMessage(Component.translatable("msg.avilixeconomy.shop.not_enough_money", total), true);
+                    double pricePer = shop.getActivePricePerLot();
+                    double total = com.roften.avilixeconomy.util.MoneyUtils.round2(pricePer * (double) lots);
+                    double bal = EconomyData.getBalance(sp.getUUID());
+                    if (bal + 1e-9 < total) {
+                        sp.displayClientMessage(Component.translatable("msg.avilixeconomy.shop.not_enough_money", com.roften.avilixeconomy.util.MoneyUtils.formatSmart(total)), true);
                         return;
                     }
 
@@ -467,7 +460,7 @@ registrar.playToServer(
                     if (!ok) {
                         sp.displayClientMessage(Component.translatable("msg.avilixeconomy.shop.purchase_failed"), true);
                     } else {
-                        sp.displayClientMessage(Component.translatable("msg.avilixeconomy.shop.purchased", lots, total), true);
+                        sp.displayClientMessage(Component.translatable("msg.avilixeconomy.shop.purchased", lots, com.roften.avilixeconomy.util.MoneyUtils.formatSmart(total)), true);
                     }
                 })
         );
@@ -475,7 +468,7 @@ registrar.playToServer(
     }
 
     // === Utils ===
-    public static void sendBalanceTo(ServerPlayer player, long balance) {
+    public static void sendBalanceTo(ServerPlayer player, double balance) {
         player.connection.send(new BalancePayload(balance));
     }
 
@@ -484,8 +477,8 @@ registrar.playToServer(
             int sessionId,
             String leftName,
             String rightName,
-            long leftMoney,
-            long rightMoney,
+            double leftMoney,
+            double rightMoney,
             boolean leftReady,
             boolean rightReady
     ) {
@@ -521,7 +514,7 @@ public record ShopRequestSalesPayload(BlockPos pos, int limit, int offset) imple
     }
 }
 
-public record ShopSalesEntryPayload(long createdAtMillis, String tradeType, String counterpartyName, int lots, long totalPrice, long pricePerLot, String itemsSummary) {
+public record ShopSalesEntryPayload(long createdAtMillis, String tradeType, String counterpartyName, int lots, double totalPrice, double pricePerLot, String itemsSummary) {
     public static final StreamCodec<RegistryFriendlyByteBuf, ShopSalesEntryPayload> CODEC =
         StreamCodec.of(
                 (buf, e) -> {
@@ -529,8 +522,8 @@ public record ShopSalesEntryPayload(long createdAtMillis, String tradeType, Stri
                         buf.writeUtf(e.tradeType(), 8);
                         buf.writeUtf(e.counterpartyName(), 32);
                         buf.writeInt(e.lots());
-                        buf.writeLong(e.totalPrice());
-                        buf.writeLong(e.pricePerLot());
+                        buf.writeDouble(e.totalPrice());
+                        buf.writeDouble(e.pricePerLot());
                         buf.writeUtf(e.itemsSummary(), 512);
                     },
                     buf -> new ShopSalesEntryPayload(
@@ -538,8 +531,8 @@ public record ShopSalesEntryPayload(long createdAtMillis, String tradeType, Stri
                             buf.readUtf(8),
                             buf.readUtf(32),
                             buf.readInt(),
-                            buf.readLong(),
-                            buf.readLong(),
+                            buf.readDouble(),
+                            buf.readDouble(),
                             buf.readUtf(512)
                     )
             );

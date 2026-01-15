@@ -1,7 +1,6 @@
 package com.roften.avilixeconomy;
 
 import com.mojang.brigadier.Command;
-import com.mojang.brigadier.arguments.LongArgumentType;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
@@ -14,6 +13,7 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
 
 import com.roften.avilixeconomy.trade.TradeManager;
 import com.roften.avilixeconomy.commission.CommissionManager;
+import com.roften.avilixeconomy.util.MoneyUtils;
 
 public class EconomyCommands {
 
@@ -33,8 +33,8 @@ public class EconomyCommands {
                         .then(Commands.literal("balance")
                                 .executes(ctx -> {
                                     ServerPlayer player = ctx.getSource().getPlayer();
-                                    long bal = EconomyData.getBalance(player.getUUID());
-                                    player.sendSystemMessage(Component.literal("Ваш баланс: " + bal));
+                                    double bal = EconomyData.getBalance(player.getUUID());
+                                    player.sendSystemMessage(Component.literal("Ваш баланс: " + MoneyUtils.formatSmart(bal)));
                                     return Command.SINGLE_SUCCESS;
                                 })
                                 // ===== /eco balance <player> (admin) =====
@@ -42,9 +42,9 @@ public class EconomyCommands {
                                         .requires(src -> src.hasPermission(2))
                                         .executes(ctx -> {
                                             ServerPlayer target = EntityArgument.getPlayer(ctx, "player");
-                                            long bal = EconomyData.getBalance(target.getUUID());
+                                            double bal = EconomyData.getBalance(target.getUUID());
                                             ctx.getSource().sendSuccess(
-                                                    () -> Component.literal("Баланс " + target.getGameProfile().getName() + ": " + bal),
+                                                    () -> Component.literal("Баланс " + target.getGameProfile().getName() + ": " + MoneyUtils.formatSmart(bal)),
                                                     false
                                             );
                                             return Command.SINGLE_SUCCESS;
@@ -57,10 +57,10 @@ public class EconomyCommands {
                                 .requires(src -> src.hasPermission(2))
                                 .then(Commands.argument("player", StringArgumentType.word())
                                         .suggests(PLAYER_SUGGESTIONS)
-                                        .then(Commands.argument("amount", LongArgumentType.longArg(0))
+                                        .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.0))
                                                 .executes(ctx -> {
                                                     String name = StringArgumentType.getString(ctx, "player");
-                                                    long amount = LongArgumentType.getLong(ctx, "amount");
+                                                    double amount = DoubleArgumentType.getDouble(ctx, "amount"); amount = MoneyUtils.round2(amount);
 
                                                     ServerPlayer target = ctx.getSource().getServer().getPlayerList().getPlayerByName(name);
                                                     if (target == null) {
@@ -69,7 +69,7 @@ public class EconomyCommands {
                                                     }
 
                                                     EconomyData.setBalance(target.getUUID(), amount, name);
-                                                    ctx.getSource().sendSystemMessage(Component.literal("Баланс изменён на " + amount));
+                                                    ctx.getSource().sendSystemMessage(Component.literal("Баланс изменён на " + MoneyUtils.formatSmart(amount)));
                                                     return Command.SINGLE_SUCCESS;
                                                 })
                                         )
@@ -81,10 +81,10 @@ public class EconomyCommands {
                                 .requires(src -> src.hasPermission(2))
                                 .then(Commands.argument("player", StringArgumentType.word())
                                         .suggests(PLAYER_SUGGESTIONS)
-                                        .then(Commands.argument("amount", LongArgumentType.longArg(1))
+                                        .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.01))
                                                 .executes(ctx -> {
                                                     String name = StringArgumentType.getString(ctx, "player");
-                                                    long amount = LongArgumentType.getLong(ctx, "amount");
+                                                    double amount = DoubleArgumentType.getDouble(ctx, "amount"); amount = MoneyUtils.round2(amount);
 
                                                     ServerPlayer target = ctx.getSource().getServer().getPlayerList().getPlayerByName(name);
                                                     if (target == null) {
@@ -93,7 +93,7 @@ public class EconomyCommands {
                                                     }
 
                                                     EconomyData.addBalance(target.getUUID(), amount);
-                                                    ctx.getSource().sendSystemMessage(Component.literal("Добавлено: " + amount));
+                                                    ctx.getSource().sendSystemMessage(Component.literal("Добавлено: " + MoneyUtils.formatSmart(amount)));
                                                     return Command.SINGLE_SUCCESS;
                                                 })
                                         )
@@ -105,10 +105,10 @@ public class EconomyCommands {
                                 .requires(src -> src.hasPermission(2))
                                 .then(Commands.argument("player", StringArgumentType.word())
                                         .suggests(PLAYER_SUGGESTIONS)
-                                        .then(Commands.argument("amount", LongArgumentType.longArg(1))
+                                        .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.01))
                                                 .executes(ctx -> {
                                                     String name = StringArgumentType.getString(ctx, "player");
-                                                    long amount = LongArgumentType.getLong(ctx, "amount");
+                                                    double amount = DoubleArgumentType.getDouble(ctx, "amount"); amount = MoneyUtils.round2(amount);
 
                                                     ServerPlayer target = ctx.getSource().getServer().getPlayerList().getPlayerByName(name);
                                                     if (target == null) {
@@ -117,7 +117,7 @@ public class EconomyCommands {
                                                     }
 
                                                     EconomyData.removeBalance(target.getUUID(), amount);
-                                                    ctx.getSource().sendSystemMessage(Component.literal("Снято: " + amount));
+                                                    ctx.getSource().sendSystemMessage(Component.literal("Снято: " + MoneyUtils.formatSmart(amount)));
                                                     return Command.SINGLE_SUCCESS;
                                                 })
                                         )
@@ -128,11 +128,11 @@ public class EconomyCommands {
                         .then(Commands.literal("pay")
                                 .then(Commands.argument("player", StringArgumentType.word())
                                         .suggests(PLAYER_SUGGESTIONS)
-                                        .then(Commands.argument("amount", LongArgumentType.longArg(1))
+                                        .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.01))
                                                 .executes(ctx -> {
                                                     ServerPlayer sender = ctx.getSource().getPlayer();
                                                     String name = StringArgumentType.getString(ctx, "player");
-                                                    long amount = LongArgumentType.getLong(ctx, "amount");
+                                                    double amount = DoubleArgumentType.getDouble(ctx, "amount"); amount = MoneyUtils.round2(amount);
 
                                                     ServerPlayer target = ctx.getSource().getServer().getPlayerList().getPlayerByName(name);
                                                     if (target == null) {
@@ -146,8 +146,8 @@ public class EconomyCommands {
                                                         return 0;
                                                     }
 
-                                                    long bal = EconomyData.getBalance(sender.getUUID());
-                                                    if (bal < amount) {
+                                                    double bal = EconomyData.getBalance(sender.getUUID());
+                                                    if (bal + 1e-9 < amount) {
                                                         sender.sendSystemMessage(Component.literal("Недостаточно средств!"));
                                                         return 0;
                                                     }
@@ -156,10 +156,10 @@ public class EconomyCommands {
                                                     EconomyData.addBalance(target.getUUID(), amount);
 
                                                     sender.sendSystemMessage(Component.literal(
-                                                            "Вы отправили " + amount + " игроку " + name));
+                                                            "Вы отправили " + MoneyUtils.formatSmart(amount) + " игроку " + name));
 
                                                     target.sendSystemMessage(Component.literal(
-                                                            "Вы получили " + amount + " от " + sender.getName().getString()));
+                                                            "Вы получили " + MoneyUtils.formatSmart(amount) + " от " + sender.getName().getString()));
 
                                                     return Command.SINGLE_SUCCESS;
                                                 })

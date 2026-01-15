@@ -2,6 +2,7 @@ package com.roften.avilixeconomy;
 
 import com.roften.avilixeconomy.database.DatabaseManager;
 import com.roften.avilixeconomy.network.NetworkUtils;
+import com.roften.avilixeconomy.util.MoneyUtils;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
@@ -26,26 +27,26 @@ public final class EconomyData {
     private EconomyData() {}
 
     // Кэш балансов, чтобы HUD не долбил SQL 20 раз в секунду
-    private static final ConcurrentHashMap<UUID, Long> cache = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<UUID, Double> cache = new ConcurrentHashMap<>();
 
     /** Возвращает значение из кэша (для HUD). */
-    public static long getCachedBalance(UUID uuid) {
-        return cache.getOrDefault(uuid, 0L);
+    public static double getCachedBalance(UUID uuid) {
+        return cache.getOrDefault(uuid, 0.0);
     }
 
     /** Прямое чтение из БД (без создания записи). */
-    public static long getBalance(UUID uuid) {
+    public static double getBalance(UUID uuid) {
         try {
-            long bal = DatabaseManager.getBalanceDirect(uuid);
+            double bal = DatabaseManager.getBalanceDirect(uuid);
             cache.put(uuid, bal);
             return bal;
         } catch (Exception e) {
-            return 0L;
+            return 0.0;
         }
     }
 
     /** Создание записи игрока, только если её не существует. */
-    public static boolean createIfMissing(UUID uuid, String name, long startBalance) {
+    public static boolean createIfMissing(UUID uuid, String name, double startBalance) {
         try {
             if (DatabaseManager.recordExists(uuid)) {
                 DatabaseManager.updatePlayerName(uuid, name);
@@ -62,7 +63,7 @@ public final class EconomyData {
     }
 
     /** Установка баланса (INSERT OR UPDATE). */
-    public static boolean setBalance(UUID uuid, long amount, String nameIfNew) {
+    public static boolean setBalance(UUID uuid, double amount, String nameIfNew) {
         try (Connection c = DatabaseManager.getConnection();
              PreparedStatement ps = c.prepareStatement(
                      "INSERT INTO economy (uuid, name, balance) VALUES (?, ?, ?) " +
@@ -71,10 +72,10 @@ public final class EconomyData {
 
             ps.setString(1, uuid.toString());
             ps.setString(2, nameIfNew != null ? nameIfNew : "unknown");
-            ps.setLong(3, amount);
+            ps.setBigDecimal(3, MoneyUtils.toDb(MoneyUtils.round2(amount)));
             ps.executeUpdate();
 
-            cache.put(uuid, amount);
+            cache.put(uuid, MoneyUtils.round2(amount));
             sendBalanceUpdateToPlayer(uuid);
             return true;
 
@@ -85,11 +86,11 @@ public final class EconomyData {
     }
 
     /** Добавление суммы с защитой от отрицательных значений. */
-    public static boolean addBalance(UUID uuid, long amount) {
+    public static boolean addBalance(UUID uuid, double amount) {
         try (Connection c = DatabaseManager.getConnection()) {
             c.setAutoCommit(false);
 
-            long current = 0;
+            double current = 0.0;
             boolean exists;
 
             try (PreparedStatement sel = c.prepareStatement(
@@ -98,17 +99,17 @@ public final class EconomyData {
                 sel.setString(1, uuid.toString());
                 try (ResultSet rs = sel.executeQuery()) {
                     exists = rs.next();
-                    if (exists) current = rs.getLong("balance");
+                    if (exists) current = MoneyUtils.fromDb(rs.getBigDecimal("balance"));
                 }
             }
 
-            long next = Math.max(0L, current + amount);
+            double next = Math.max(0.0, MoneyUtils.round2(current + amount));
 
             if (exists) {
                 try (PreparedStatement upd = c.prepareStatement(
                         "UPDATE economy SET balance = ? WHERE uuid = ?"
                 )) {
-                    upd.setLong(1, next);
+                    upd.setBigDecimal(1, MoneyUtils.toDb(next));
                     upd.setString(2, uuid.toString());
                     upd.executeUpdate();
                 }
@@ -118,7 +119,7 @@ public final class EconomyData {
                 )) {
                     ins.setString(1, uuid.toString());
                     ins.setString(2, "unknown");
-                    ins.setLong(3, next);
+                    ins.setBigDecimal(3, MoneyUtils.toDb(next));
                     ins.executeUpdate();
                 }
             }
@@ -135,18 +136,18 @@ public final class EconomyData {
     }
 
     /** Уменьшение баланса (нельзя уйти в минус). */
-    public static boolean removeBalance(UUID uuid, long amount) {
+    public static boolean removeBalance(UUID uuid, double amount) {
         return addBalance(uuid, -Math.abs(amount));
     }
 
     /** Перевод между игроками. */
-    public static boolean pay(UUID from, UUID to, long amount) {
+    public static boolean pay(UUID from, UUID to, double amount) {
         if (amount <= 0) return false;
 
         try (Connection c = DatabaseManager.getConnection()) {
             c.setAutoCommit(false);
 
-            long balFrom = 0;
+            double balFrom = 0.0;
             boolean existsFrom;
 
             try (PreparedStatement sel = c.prepareStatement(
@@ -155,7 +156,7 @@ public final class EconomyData {
                 sel.setString(1, from.toString());
                 try (ResultSet rs = sel.executeQuery()) {
                     existsFrom = rs.next();
-                    if (existsFrom) balFrom = rs.getLong("balance");
+                    if (existsFrom) balFrom = MoneyUtils.fromDb(rs.getBigDecimal("balance"));
                 }
             }
 
@@ -164,7 +165,7 @@ public final class EconomyData {
                 return false;
             }
 
-            long balTo = 0;
+            double balTo = 0.0;
             boolean existsTo;
 
             try (PreparedStatement sel2 = c.prepareStatement(
@@ -173,7 +174,7 @@ public final class EconomyData {
                 sel2.setString(1, to.toString());
                 try (ResultSet rs2 = sel2.executeQuery()) {
                     existsTo = rs2.next();
-                    if (existsTo) balTo = rs2.getLong("balance");
+                    if (existsTo) balTo = MoneyUtils.fromDb(rs2.getBigDecimal("balance"));
                 }
             }
 
@@ -181,7 +182,7 @@ public final class EconomyData {
             try (PreparedStatement upd = c.prepareStatement(
                     "UPDATE economy SET balance = balance - ? WHERE uuid = ?"
             )) {
-                upd.setLong(1, amount);
+                upd.setBigDecimal(1, MoneyUtils.toDb(MoneyUtils.round2(amount)));
                 upd.setString(2, from.toString());
                 upd.executeUpdate();
             }
@@ -191,7 +192,7 @@ public final class EconomyData {
                 try (PreparedStatement upd = c.prepareStatement(
                         "UPDATE economy SET balance = balance + ? WHERE uuid = ?"
                 )) {
-                    upd.setLong(1, amount);
+                    upd.setBigDecimal(1, MoneyUtils.toDb(MoneyUtils.round2(amount)));
                     upd.setString(2, to.toString());
                     upd.executeUpdate();
                 }
@@ -201,15 +202,15 @@ public final class EconomyData {
                 )) {
                     ins.setString(1, to.toString());
                     ins.setString(2, "unknown");
-                    ins.setLong(3, amount);
+                    ins.setBigDecimal(3, MoneyUtils.toDb(MoneyUtils.round2(amount)));
                     ins.executeUpdate();
                 }
             }
 
             c.commit();
 
-            cache.put(from, balFrom - amount);
-            cache.put(to, balTo + amount);
+            cache.put(from, MoneyUtils.round2(balFrom - amount));
+            cache.put(to, MoneyUtils.round2(balTo + amount));
             sendBalanceUpdateToPlayer(from);
             sendBalanceUpdateToPlayer(to);
             return true;
@@ -226,9 +227,9 @@ public final class EconomyData {
      *
      * Used for commissions (variant B): buyer pays the listed total, receiver gets (total - fee), server gets fee.
      */
-    public static boolean paySplit(UUID from, UUID toA, long amountToA, UUID toB, long amountToB) {
+    public static boolean paySplit(UUID from, UUID toA, double amountToA, UUID toB, double amountToB) {
         if (amountToA < 0 || amountToB < 0) return false;
-        long total = amountToA + amountToB;
+        double total = MoneyUtils.round2(amountToA + amountToB);
         if (total <= 0) return false;
 
         // Merge recipients if same UUID
@@ -239,7 +240,7 @@ public final class EconomyData {
         try (Connection c = DatabaseManager.getConnection()) {
             c.setAutoCommit(false);
 
-            long balFrom = 0;
+            double balFrom = 0.0;
             boolean existsFrom;
 
             try (PreparedStatement sel = c.prepareStatement(
@@ -248,7 +249,7 @@ public final class EconomyData {
                 sel.setString(1, from.toString());
                 try (ResultSet rs = sel.executeQuery()) {
                     existsFrom = rs.next();
-                    if (existsFrom) balFrom = rs.getLong("balance");
+                    if (existsFrom) balFrom = MoneyUtils.fromDb(rs.getBigDecimal("balance"));
                 }
             }
 
@@ -259,26 +260,26 @@ public final class EconomyData {
 
             // Lock recipients (if exist)
             boolean existsA;
-            long balA = 0;
+            double balA = 0.0;
             try (PreparedStatement sel = c.prepareStatement(
                     "SELECT balance FROM economy WHERE uuid = ? FOR UPDATE"
             )) {
                 sel.setString(1, toA.toString());
                 try (ResultSet rs = sel.executeQuery()) {
                     existsA = rs.next();
-                    if (existsA) balA = rs.getLong("balance");
+                    if (existsA) balA = MoneyUtils.fromDb(rs.getBigDecimal("balance"));
                 }
             }
 
             boolean existsB;
-            long balB = 0;
+            double balB = 0.0;
             try (PreparedStatement sel = c.prepareStatement(
                     "SELECT balance FROM economy WHERE uuid = ? FOR UPDATE"
             )) {
                 sel.setString(1, toB.toString());
                 try (ResultSet rs = sel.executeQuery()) {
                     existsB = rs.next();
-                    if (existsB) balB = rs.getLong("balance");
+                    if (existsB) balB = MoneyUtils.fromDb(rs.getBigDecimal("balance"));
                 }
             }
 
@@ -286,7 +287,7 @@ public final class EconomyData {
             try (PreparedStatement upd = c.prepareStatement(
                     "UPDATE economy SET balance = balance - ? WHERE uuid = ?"
             )) {
-                upd.setLong(1, total);
+                upd.setBigDecimal(1, MoneyUtils.toDb(total));
                 upd.setString(2, from.toString());
                 upd.executeUpdate();
             }
@@ -297,7 +298,7 @@ public final class EconomyData {
                     try (PreparedStatement upd = c.prepareStatement(
                             "UPDATE economy SET balance = balance + ? WHERE uuid = ?"
                     )) {
-                        upd.setLong(1, amountToA);
+                        upd.setBigDecimal(1, MoneyUtils.toDb(MoneyUtils.round2(amountToA)));
                         upd.setString(2, toA.toString());
                         upd.executeUpdate();
                     }
@@ -307,7 +308,7 @@ public final class EconomyData {
                     )) {
                         ins.setString(1, toA.toString());
                         ins.setString(2, "unknown");
-                        ins.setLong(3, amountToA);
+                        ins.setBigDecimal(3, MoneyUtils.toDb(MoneyUtils.round2(amountToA)));
                         ins.executeUpdate();
                     }
                 }
@@ -319,7 +320,7 @@ public final class EconomyData {
                     try (PreparedStatement upd = c.prepareStatement(
                             "UPDATE economy SET balance = balance + ? WHERE uuid = ?"
                     )) {
-                        upd.setLong(1, amountToB);
+                        upd.setBigDecimal(1, MoneyUtils.toDb(MoneyUtils.round2(amountToB)));
                         upd.setString(2, toB.toString());
                         upd.executeUpdate();
                     }
@@ -329,7 +330,7 @@ public final class EconomyData {
                     )) {
                         ins.setString(1, toB.toString());
                         ins.setString(2, "unknown");
-                        ins.setLong(3, amountToB);
+                        ins.setBigDecimal(3, MoneyUtils.toDb(MoneyUtils.round2(amountToB)));
                         ins.executeUpdate();
                     }
                 }
@@ -338,9 +339,9 @@ public final class EconomyData {
             c.commit();
 
             // update cache (best-effort) + notify online players
-            cache.put(from, balFrom - total);
-            cache.put(toA, (existsA ? balA : 0L) + amountToA);
-            cache.put(toB, (existsB ? balB : 0L) + amountToB);
+            cache.put(from, MoneyUtils.round2(balFrom - total));
+            cache.put(toA, MoneyUtils.round2((existsA ? balA : 0.0) + amountToA));
+            cache.put(toB, MoneyUtils.round2((existsB ? balB : 0.0) + amountToB));
 
             sendBalanceUpdateToPlayer(from);
             sendBalanceUpdateToPlayer(toA);
@@ -360,26 +361,26 @@ public final class EconomyData {
 
             ServerPlayer p = server.getPlayerList().getPlayer(uuid);
             if (p != null) {
-                long bal = cache.getOrDefault(uuid, 0L);
+                double bal = cache.getOrDefault(uuid, 0.0);
                 NetworkUtils.sendBalanceToPlayer(p, bal);
             }
         } catch (Exception ignored) {}
     }
 
-    public static void updateCache(UUID uuid, long balance) {
-        cache.put(uuid, balance);
+    public static void updateCache(UUID uuid, double balance) {
+        cache.put(uuid, MoneyUtils.round2(balance));
     }
     // ========= Асинхронные версии =========
 
-    public static CompletableFuture<Long> getBalanceAsync(UUID uuid) {
+    public static CompletableFuture<Double> getBalanceAsync(UUID uuid) {
         return CompletableFuture.supplyAsync(() -> getBalance(uuid));
     }
 
-    public static CompletableFuture<Boolean> addBalanceAsync(UUID uuid, long amount) {
+    public static CompletableFuture<Boolean> addBalanceAsync(UUID uuid, double amount) {
         return CompletableFuture.supplyAsync(() -> addBalance(uuid, amount));
     }
 
-    public static CompletableFuture<Boolean> payAsync(UUID from, UUID to, long amount) {
+    public static CompletableFuture<Boolean> payAsync(UUID from, UUID to, double amount) {
         return CompletableFuture.supplyAsync(() -> pay(from, to, amount));
     }
 }

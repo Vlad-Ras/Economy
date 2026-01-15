@@ -2,6 +2,7 @@ package com.roften.avilixeconomy;
 
 import com.roften.avilixeconomy.database.DatabaseManager;
 import com.roften.avilixeconomy.config.AvilixEconomyCommonConfig;
+import com.roften.avilixeconomy.util.MoneyUtils;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
@@ -26,7 +27,7 @@ public class EconomyEvents {
         try {
             java.util.UUID serverUuid = java.util.UUID.fromString(AvilixEconomyCommonConfig.ECONOMY.serverAccountUuid.get());
             String serverName = AvilixEconomyCommonConfig.ECONOMY.serverAccountName.get();
-            long serverBal = AvilixEconomyCommonConfig.ECONOMY.serverAccountStartBalance.get();
+            double serverBal = MoneyUtils.round2(AvilixEconomyCommonConfig.ECONOMY.serverAccountStartBalance.get());
             DatabaseManager.ensurePlayerRecord(serverUuid, serverName, serverBal);
         } catch (Exception e) {
             e.printStackTrace();
@@ -56,14 +57,14 @@ public class EconomyEvents {
 
             if (!exists) {
                 // создаём
-                DatabaseManager.createPlayerRecord(uuid, name, AvilixEconomyCommonConfig.ECONOMY.startBalance.get());
-                EconomyData.updateCache(uuid, AvilixEconomyCommonConfig.ECONOMY.startBalance.get());
+                DatabaseManager.createPlayerRecord(uuid, name, MoneyUtils.round2(AvilixEconomyCommonConfig.ECONOMY.startBalance.get()));
+                EconomyData.updateCache(uuid, MoneyUtils.round2(AvilixEconomyCommonConfig.ECONOMY.startBalance.get()));
 
             } else {
                 // обновляем имя
                 DatabaseManager.updatePlayerName(uuid, name);
 
-                long bal = DatabaseManager.getBalanceDirect(uuid);
+                double bal = DatabaseManager.getBalanceDirect(uuid);
                 EconomyData.updateCache(uuid, bal);
             }
 

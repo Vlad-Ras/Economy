@@ -1,6 +1,7 @@
 package com.roften.avilixeconomy.commission;
 
 import com.roften.avilixeconomy.config.AvilixEconomyCommonConfig;
+import com.roften.avilixeconomy.util.MoneyUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -80,13 +81,12 @@ public final class CommissionManager {
         return removed;
     }
 
-    public static long computeFee(long total, int bps) {
-        if (total <= 0) return 0L;
-        if (bps <= 0) return 0L;
-        // total * bps / 10000 with overflow safety
-        // Use double? No, keep integer math.
-        long fee = (total * (long) bps) / 10000L;
-        if (fee < 0) return 0L;
+    public static double computeFee(double total, int bps) {
+        if (total <= 0) return 0.0;
+        if (bps <= 0) return 0.0;
+        // total * bps / 10000 (2 decimals)
+        double fee = MoneyUtils.round2(total * (double) bps / 10000.0);
+        if (fee < 0) return 0.0;
         if (fee > total) return total;
         return fee;
     }

@@ -9,6 +9,7 @@ import com.roften.avilixeconomy.registry.ModItems;
 import com.roften.avilixeconomy.registry.ModMenus;
 import com.roften.avilixeconomy.registry.CreativeTabEvents;
 import com.roften.avilixeconomy.shop.ShopInteractEvents;
+import com.roften.avilixeconomy.shop.ShopBreakProtectionEvents;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -42,6 +43,7 @@ public class AvilixEconomy {
         // -------- SERVER EVENTS --------
         NeoForge.EVENT_BUS.register(new EconomyEvents());
         NeoForge.EVENT_BUS.register(new ShopInteractEvents());
+        NeoForge.EVENT_BUS.register(new ShopBreakProtectionEvents());
         NeoForge.EVENT_BUS.addListener(EconomyCommands::register);
 
         // -------- CLIENT --------

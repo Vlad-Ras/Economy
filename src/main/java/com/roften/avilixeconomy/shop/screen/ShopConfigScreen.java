@@ -3,8 +3,10 @@ package com.roften.avilixeconomy.shop.screen;
 import com.roften.avilixeconomy.client.ui.ShopUi;
 import com.roften.avilixeconomy.client.ui.UiKit;
 import com.roften.avilixeconomy.AvilixEconomy;
+import com.roften.avilixeconomy.compat.JeiCompat;
 import com.roften.avilixeconomy.network.NetworkRegistration;
 import com.roften.avilixeconomy.shop.menu.ShopConfigMenu;
+import com.roften.avilixeconomy.util.MoneyUtils;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -130,7 +132,8 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
     private void updateLayoutDimensions() {
         // Use available window width to widen the right sidebar.
         int margin = 12;
-        int available = Math.max(0, this.width - margin * 2 - LEFT_W - GAP_W);
+        int reserved = JeiCompat.reservedRightPixels();
+        int available = Math.max(0, (this.width - reserved) - margin * 2 - LEFT_W - GAP_W);
         this.rightW = clamp(available, RIGHT_MIN_W, RIGHT_MAX_W);
         this.imageWidth = LEFT_W + GAP_W + this.rightW;
         this.imageHeight = GUI_H;
@@ -151,13 +154,13 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
         this.priceBox = new EditBox(this.font, 0, 0, 120, BOX_H,
                 Component.translatable("screen.avilixeconomy.shop.price_label"));
         this.priceBox.setMaxLength(19);
-        this.priceBox.setFilter(s -> s.isEmpty() || s.chars().allMatch(Character::isDigit));
+        this.priceBox.setFilter(s -> s.isEmpty() || s.chars().allMatch(ch -> (ch >= '0' && ch <= '9') || ch == '.' || ch == ','));
         this.priceBox.setHint(Component.literal("0"));
-        this.priceBox.setValue(Long.toString(Math.max(0L, this.menu.getActivePriceSynced())));
+        this.priceBox.setValue(MoneyUtils.formatSmart(Math.max(0.0, this.menu.getActivePriceSynced())));
         this.addRenderableWidget(this.priceBox);
 
         this.applyButton = Button.builder(Component.translatable("screen.avilixeconomy.shop.apply"), b -> {
-            long price = parseLongDigits(this.priceBox.getValue());
+            double price = MoneyUtils.parseSmart(this.priceBox.getValue());
             PacketDistributor.sendToServer(new NetworkRegistration.ShopSetPricePayload(this.menu.getPos(), this.menu.getMode(), price));
         }).bounds(0, 0, 120, BTN_H).build();
         this.addRenderableWidget(this.applyButton);
@@ -218,7 +221,8 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
         updateLayoutDimensions();
 
         int margin = 12;
-        float sx = (guiW - margin * 2) / (float) this.imageWidth;
+        int reserved = JeiCompat.reservedRightPixels();
+        float sx = ((guiW - reserved) - margin * 2) / (float) this.imageWidth;
         float sy = (guiH - margin * 2) / (float) this.imageHeight;
 
         float s = Math.min(1.0f, Math.min(sx, sy));
@@ -228,7 +232,9 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
         int scaledW = Math.round(this.imageWidth * this.uiScale);
         int scaledH = Math.round(this.imageHeight * this.uiScale);
 
-        this.uiLeft = (guiW - scaledW) / 2;
+        // Keep the UI inside the left area when JEI overlay is present.
+        int reservedForJei = JeiCompat.reservedRightPixels();
+        this.uiLeft = ((guiW - reservedForJei) - scaledW) / 2;
         this.uiTop = (guiH - scaledH) / 2;
 
         this.leftPos = 0;
@@ -357,7 +363,7 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
 
         // Keep price in sync if player didn't type anything yet.
         if (this.priceBox != null && !this.priceBox.isFocused() && (this.priceBox.getValue() == null || this.priceBox.getValue().isBlank())) {
-            this.priceBox.setValue(Long.toString(Math.max(0L, this.menu.getActivePriceSynced())));
+            this.priceBox.setValue(MoneyUtils.formatSmart(Math.max(0.0, this.menu.getActivePriceSynced())));
         }
 
         var page = ShopClientState.getSales(this.menu.getPos());
@@ -620,7 +626,7 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
             gfx.drawString(this.font, time, listX + 4, y, 0x9A9A9A, false);
 
             gfx.drawString(this.font,
-                    Component.translatable("screen.avilixeconomy.shop.sales_total_short", Long.toString(row.totalPrice())),
+                    Component.translatable("screen.avilixeconomy.shop.sales_total_short", MoneyUtils.formatSmart(row.totalPrice())),
                     listX + 4, y + 10, 0x80FF80, false);
 
             int lineY = y + 20;

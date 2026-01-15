@@ -83,15 +83,15 @@ public class ShopBuyMenu extends AbstractContainerMenu {
         });
         this.addDataSlot(new DataSlot() {
             @Override public int get() {
-                long p = shop != null ? shop.getActivePricePerLot() : 0L;
-                return (int) (p & 0xFFFFFFFFL);
+                long bits = Double.doubleToRawLongBits(shop != null ? shop.getActivePricePerLot() : 0.0);
+                return (int) (bits & 0xFFFFFFFFL);
             }
             @Override public void set(int value) { priceLo = value; }
         });
         this.addDataSlot(new DataSlot() {
             @Override public int get() {
-                long p = shop != null ? shop.getActivePricePerLot() : 0L;
-                return (int) ((p >>> 32) & 0xFFFFFFFFL);
+                long bits = Double.doubleToRawLongBits(shop != null ? shop.getActivePricePerLot() : 0.0);
+                return (int) ((bits >>> 32) & 0xFFFFFFFFL);
             }
             @Override public void set(int value) { priceHi = value; }
         });
@@ -165,12 +165,13 @@ public class ShopBuyMenu extends AbstractContainerMenu {
     }
 
     /** Active (current mode) price-per-lot synced from server. */
-    public long getPricePerLot() {
-        return ((long) priceHi << 32) | (priceLo & 0xFFFFFFFFL);
+    public double getPricePerLot() {
+        long bits = ((long) priceHi << 32) | (priceLo & 0xFFFFFFFFL);
+        return Double.longBitsToDouble(bits);
     }
 
     /** Alias used by some screens. */
-    public long getActivePricePerLot() {
+    public double getActivePricePerLot() {
         return getPricePerLot();
     }
 

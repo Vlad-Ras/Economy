@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
+
 /**
  * Client-side shared state for Shop screens.
  * Does NOT reference any client-only classes to stay safe on dedicated servers.
@@ -15,7 +16,7 @@ public final class ShopClientState {
 
     private ShopClientState() {}
 
-    public record SalesEntry(long createdAtMillis, String tradeType, String counterpartyName, int lots, long totalPrice, long pricePerLot, String itemsSummary) {}
+    public record SalesEntry(long createdAtMillis, String tradeType, String counterpartyName, int lots, double totalPrice, double pricePerLot, String itemsSummary) {}
 
     public record SalesPage(int offset, int limit, boolean hasMore, List<SalesEntry> rows, long version) {}
 

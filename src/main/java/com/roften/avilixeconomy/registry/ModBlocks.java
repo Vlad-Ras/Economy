@@ -24,6 +24,10 @@ public final class ModBlocks {
                     BlockBehaviour.Properties.of()
                             .strength(2.5F)
                             .sound(SoundType.WOOD)
+                            // The shop model is not a full cube (it has "legs").
+                            // If we keep occlusion enabled, Minecraft will cull the top face
+                            // of the block below, which looks like an "invisible" block under the shop.
+                            .noOcclusion()
             ));
 
     public static void register(IEventBus modBus) {

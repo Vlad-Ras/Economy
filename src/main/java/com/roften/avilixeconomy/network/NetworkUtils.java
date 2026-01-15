@@ -32,7 +32,7 @@ public final class NetworkUtils {
         AvilixEconomy.LOGGER.info("[Network] Payload handlers registered!");
     }
 
-    public static void sendBalanceToPlayer(ServerPlayer player, long balance) {
+    public static void sendBalanceToPlayer(ServerPlayer player, double balance) {
         try {
             NetworkRegistration.BalancePayload payload = new NetworkRegistration.BalancePayload(balance);
             player.connection.send(payload);

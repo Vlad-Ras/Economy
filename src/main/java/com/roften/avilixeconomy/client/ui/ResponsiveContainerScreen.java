@@ -39,12 +39,23 @@ public abstract class ResponsiveContainerScreen<T extends AbstractContainerMenu>
     /** Тут ты раскладываешь кнопки/поля ввода — в UI-координатах. Вызывай при init и при resize. */
     protected abstract void layoutWidgets();
 
+    /**
+     * Some overlays (e.g. JEI) can occupy the right side of the screen.
+     * Subclasses can reserve pixels so the UI is scaled/positioned to avoid overlap.
+     */
+    protected int reservedRightPixels() {
+        return 0;
+    }
+
     protected void updateUiTransform() {
         // gui size (учитывает Gui Scale)
         int gw = this.minecraft.getWindow().getGuiScaledWidth();
         int gh = this.minecraft.getWindow().getGuiScaledHeight();
 
-        float sx = (float) gw / (float) baseWidth();
+        int reservedRight = Math.max(0, reservedRightPixels());
+        int gwAvailable = Math.max(0, gw - reservedRight);
+
+        float sx = (float) gwAvailable / (float) baseWidth();
         float sy = (float) gh / (float) baseHeight();
         uiScale = Math.min(1.0f, Math.min(sx, sy)); // не увеличиваем больше 1.0
         uiScale = Math.max(0.55f, uiScale);        // нижний предел (чтобы не слипалось)
@@ -52,7 +63,8 @@ public abstract class ResponsiveContainerScreen<T extends AbstractContainerMenu>
         int scaledW = Math.round(baseWidth() * uiScale);
         int scaledH = Math.round(baseHeight() * uiScale);
 
-        uiLeft = (gw - scaledW) / 2;
+        // Center within the available area (excluding reserved right overlay).
+        uiLeft = (gwAvailable - scaledW) / 2;
         uiTop = (gh - scaledH) / 2;
 
         // ВАЖНО: leftPos/topPos в UI-координатах — обычно 0, если ты рисуешь через translate+scale
