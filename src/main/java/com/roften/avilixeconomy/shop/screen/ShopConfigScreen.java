@@ -21,6 +21,13 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
  * Shop config screen (owner-only).
  *
@@ -77,6 +84,8 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
     private List<ShopClientState.SalesEntry> salesRows = List.of();
     private long lastSalesVersion = -1L;
 
+    private final Map<String, String> salesItemNameCache = new ConcurrentHashMap<>();
+
     // Layout (dynamic)
     private int rightW = 220;
 
@@ -97,6 +106,13 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
     private int lastGuiW = -1;
     private int lastGuiH = -1;
     private boolean needsRelayout = true;
+
+    // --- JEI compatibility (computed screen-space bounds of the scaled UI) ---
+    public int getUiLeftScreen() { return uiLeft; }
+    public int getUiTopScreen() { return uiTop; }
+    public float getUiScale() { return uiScale; }
+    public int getScaledUiWidth() { return Math.round(this.imageWidth * this.uiScale); }
+    public int getScaledUiHeight() { return Math.round(this.imageHeight * this.uiScale); }
 
     public ShopConfigScreen(ShopConfigMenu menu, Inventory playerInv, Component title) {
         super(menu, playerInv, title);
@@ -360,6 +376,7 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
     @Override
     protected void containerTick() {
         super.containerTick();
+        ShopToastState.tick();
 
         // Keep price in sync if player didn't type anything yet.
         if (this.priceBox != null && !this.priceBox.isFocused() && (this.priceBox.getValue() == null || this.priceBox.getValue().isBlank())) {
@@ -409,6 +426,9 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
 
         gfx.pose().popPose();
 
+        // Toast message (price set, etc.) should be ABOVE the shop window.
+        renderShopToast(gfx);
+
         this.suppressTooltip = false;
 
         // Tooltips render in real screen coords, but use hoveredSlot computed during scaled pass.
@@ -425,6 +445,40 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
     public void renderTooltip(GuiGraphics gfx, int mouseX, int mouseY) {
         if (this.suppressTooltip) return;
         super.renderTooltip(gfx, mouseX, mouseY);
+    }
+
+    private void renderShopToast(GuiGraphics gfx) {
+        ShopToastState.Toast toast = ShopToastState.getCurrent();
+        if (toast == null) return;
+
+        Component msg = toast.message();
+        if (msg == null) return;
+
+        String s = msg.getString();
+        if (s.isEmpty()) return;
+
+        int textW = this.font.width(s);
+        int padX = 6;
+        int padY = 3;
+        int boxW = textW + padX * 2;
+        int boxH = this.font.lineHeight + padY * 2;
+
+        int scaledW = Math.round(this.imageWidth * this.uiScale);
+        int x = this.uiLeft + Math.max(0, (scaledW - boxW) / 2);
+        int y = this.uiTop - boxH - 4;
+        if (y < 2) y = 2;
+
+        int bg = 0xB0000000;
+        int fg = toast.success() ? 0x55FF55 : 0xFF5555;
+
+        gfx.fill(x, y, x + boxW, y + boxH, bg);
+        gfx.drawString(this.font, s, x + padX, y + padY, fg, false);
+    }
+
+    @Override
+    public void removed() {
+        super.removed();
+        ShopToastState.clear();
     }
 
     @Override
@@ -630,7 +684,7 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
                     listX + 4, y + 10, 0x80FF80, false);
 
             int lineY = y + 20;
-            String summary = row.itemsSummary();
+            String summary = humanizeItemsSummary(row.itemsSummary());
             if (summary != null && !summary.isBlank()) {
                 // Wrap the items summary so long lines don't get cut off.
                 List<net.minecraft.util.FormattedCharSequence> lines = this.font.split(Component.literal(summary), listW - 8);
@@ -645,6 +699,51 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
             // Spacing between entries.
             y = Math.max(lineY + 6, y + 34);
         }
+    }
+
+    private String humanizeItemsSummary(String summary) {
+        if (summary == null || summary.isBlank() || summary.equals("-")) return summary;
+        // Cache by original summary line to keep render cheap.
+        String cached = salesItemNameCache.get(summary);
+        if (cached != null) return cached;
+
+        // Format from DB is like: "minecraft:stone×64, create:water_wheel×1"
+        String[] parts = summary.split(",\\s*");
+        StringBuilder out = new StringBuilder(summary.length() + 16);
+        for (int i = 0; i < parts.length; i++) {
+            String part = parts[i].trim();
+            if (part.isEmpty()) continue;
+
+            String id = part;
+            String suffix = "";
+            int mult = part.indexOf('×');
+            if (mult >= 0) {
+                id = part.substring(0, mult).trim();
+                suffix = part.substring(mult).trim(); // includes ×N
+            }
+
+            String nice = id;
+            try {
+                ResourceLocation rl = ResourceLocation.tryParse(id);
+                if (rl != null) {
+                    Item item = BuiltInRegistries.ITEM.get(rl);
+                    if (item != null) {
+                        ItemStack st = new ItemStack(item);
+                        if (!st.isEmpty()) {
+                            nice = st.getHoverName().getString();
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+
+            if (out.length() > 0) out.append(", ");
+            out.append(nice).append(suffix);
+        }
+
+        String res = out.length() == 0 ? summary : out.toString();
+        salesItemNameCache.put(summary, res);
+        return res;
     }
 
     private void requestSales() {

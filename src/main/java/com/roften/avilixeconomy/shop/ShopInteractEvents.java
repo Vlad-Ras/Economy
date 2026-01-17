@@ -3,6 +3,7 @@ package com.roften.avilixeconomy.shop;
 import com.roften.avilixeconomy.compat.OpenPacCompat;
 import com.roften.avilixeconomy.shop.blockentity.ShopBlockEntity;
 import com.roften.avilixeconomy.shop.menu.ShopConfigMenu;
+import com.roften.avilixeconomy.util.Permissions;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -29,16 +30,17 @@ public final class ShopInteractEvents {
         BlockPos pos = event.getPos();
         if (!(serverLevel.getBlockEntity(pos) instanceof ShopBlockEntity shop)) return;
 
-        // Only the owner can open the config UI.
-        if (!shop.isOwner(player)) {
+        // Owner or admin bypass can open the config UI.
+        if (!shop.isOwner(player) && !Permissions.canOpenAnyShop(player)) {
             player.displayClientMessage(Component.translatable("msg.avilixeconomy.shop.not_owner"), true);
             event.setCanceled(true);
             event.setCancellationResult(InteractionResult.CONSUME);
             return;
         }
 
-        // Respect OpenPac/parties protection.
-        if (!OpenPacCompat.canInteract(player, serverLevel, pos, event.getFace(), event.getHand())) {
+        // Respect OpenPac/parties protection unless admin bypass.
+        if (!Permissions.canOpenAnyShop(player)
+                && !OpenPacCompat.canInteract(player, serverLevel, pos, event.getFace(), event.getHand())) {
             event.setCanceled(true);
             event.setCancellationResult(InteractionResult.FAIL);
             return;

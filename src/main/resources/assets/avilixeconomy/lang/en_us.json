@@ -9,6 +9,7 @@
   "msg.avilixeconomy.shop.price_set": "Price set: %s",
   "msg.avilixeconomy.shop.purchase_failed": "Purchase failed.",
   "msg.avilixeconomy.shop.purchased": "Purchased lots: %s (total: %s)",
+  "msg.avilixeconomy.shop.sold": "Sold lots: %s (total: %s)",
   "msg.avilixeconomy.shop.too_expensive": "Total is too large.",
   "msg.avilixeconomy.shop.too_many": "Not enough stock. Lots available: %s",
   "screen.avilixeconomy.shop.apply": "Apply",

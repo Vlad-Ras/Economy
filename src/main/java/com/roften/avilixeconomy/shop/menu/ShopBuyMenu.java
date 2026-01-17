@@ -98,7 +98,7 @@ public class ShopBuyMenu extends AbstractContainerMenu {
         this.addDataSlot(new DataSlot() {
             @Override public int get() {
                 return shop != null
-                        ? (shop.isBuyMode() ? shop.getAvailableBuyLots() : shop.getAvailableLots())
+                        ? (shop.isBuyMode() ? shop.getAvailableBuyLotsCached() : shop.getAvailableLotsCached())
                         : 0;
             }
             @Override public void set(int value) { availableLots = value; }

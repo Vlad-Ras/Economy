@@ -23,6 +23,9 @@ public final class JeiCompat {
      * If JEI is not present, returns 0.
      */
     public static int reservedRightPixels() {
-        return isJeiLoaded() ? 180 : 0;
+        // IMPORTANT:
+        // We do NOT shift our screens to the left anymore.
+        // Proper JEI handling is done via a JEI plugin (extra GUI areas), so JEI moves instead of our UI.
+        return 0;
     }
 }

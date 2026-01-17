@@ -2,8 +2,10 @@ package com.roften.avilixeconomy.shop.menu;
 
 import com.roften.avilixeconomy.registry.ModBlocks;
 import com.roften.avilixeconomy.shop.blockentity.ShopBlockEntity;
+import com.roften.avilixeconomy.util.Permissions;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -267,7 +269,13 @@ public double getBuyPriceSynced(){ long bits = ((long)buyHi<<32) | (buyLo & 0xFF
 public double getActivePriceSynced(){ return getMode()==1 ? getBuyPriceSynced() : getSellPriceSynced(); }
 @Override
     public boolean stillValid(Player player) {
-        if (shop != null && !shop.isOwner(player)) return false;
+        // Owners can always use the config; admins with shop.open_any can inspect/configure any shop.
+        if (shop != null && !shop.isOwner(player)) {
+            if (player instanceof ServerPlayer sp && Permissions.canOpenAnyShop(sp)) {
+                return stillValid(access, player, ModBlocks.SHOP.get());
+            }
+            return false;
+        }
         return stillValid(access, player, ModBlocks.SHOP.get());
     }
 

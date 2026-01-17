@@ -4,7 +4,9 @@ import com.roften.avilixeconomy.EconomyData;
 import com.roften.avilixeconomy.commission.CommissionManager;
 import com.roften.avilixeconomy.config.AvilixEconomyCommonConfig;
 import com.roften.avilixeconomy.database.DatabaseManager;
+import com.roften.avilixeconomy.network.NetworkUtils;
 import com.roften.avilixeconomy.util.MoneyUtils;
+import com.roften.avilixeconomy.network.NetworkRegistration;
 import com.roften.avilixeconomy.registry.ModBlockEntities;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -46,6 +48,12 @@ public class ShopBlockEntity extends BlockEntity {
     private double priceSellPerLot;
     private double priceBuyPerLot;
     private boolean buyMode;
+
+    // ===== cached computed values (server-side) =====
+    private long cachedAvailGameTime = -1L;
+    private int cachedAvailSellLots = 0;
+    private int cachedAvailBuyLots = 0;
+
 
     private final ItemStackHandler template = new ItemStackHandler(TEMPLATE_SLOTS) {
         @Override
@@ -175,6 +183,57 @@ public void setPriceForMode(int mode, double price) {
         return Math.max(0, minLots == Integer.MAX_VALUE ? 0 : minLots);
     }
 
+
+    /**
+     * Cached variant to avoid heavy per-tick scans while a menu is open.
+     * Recomputes at most once per 10 game ticks.
+     */
+    public int getAvailableLotsCached() {
+        if (level == null || level.isClientSide) return getAvailableLots();
+        refreshAvailableLotsCacheIfNeeded();
+        return cachedAvailSellLots;
+    }
+
+    /**
+     * Cached variant for BUY-mode (seller sells to shop): depends on owner balance and stock space.
+     * Uses cached balance only (no SQL). Warmed up once on menu open.
+     */
+    public int getAvailableBuyLotsCached() {
+        if (!buyMode) return 0;
+        if (level == null || level.isClientSide) return getAvailableBuyLots();
+        refreshAvailableLotsCacheIfNeeded();
+        return cachedAvailBuyLots;
+    }
+
+    private void refreshAvailableLotsCacheIfNeeded() {
+        long t = level.getGameTime();
+        if (cachedAvailGameTime >= 0 && (t - cachedAvailGameTime) < 10) return;
+        cachedAvailGameTime = t;
+
+        // sell-mode cache
+        cachedAvailSellLots = getAvailableLots();
+
+        // buy-mode cache
+        if (!buyMode) {
+            cachedAvailBuyLots = 0;
+            return;
+        }
+        java.util.List<net.minecraft.world.item.ItemStack> lot = getTemplateStacks();
+        if (lot.isEmpty() || owner == null) {
+            cachedAvailBuyLots = 0;
+            return;
+        }
+        double price = priceBuyPerLot;
+        if (price <= 0.0) {
+            cachedAvailBuyLots = 0;
+            return;
+        }
+        double ownerBal = com.roften.avilixeconomy.EconomyData.getCachedBalance(owner);
+        long byMoney = (long) Math.floor(ownerBal / price);
+        int bySpace = getAvailableLotsBySpace(lot);
+        long min = Math.min(byMoney, (long) bySpace);
+        cachedAvailBuyLots = (int) Math.min(Integer.MAX_VALUE, Math.max(0L, min));
+    }
     public boolean isTemplateEmpty() {
         return templateEmpty();
     }
@@ -213,7 +272,7 @@ public void setPriceForMode(int mode, double price) {
      */
     public boolean tryBuy(ServerPlayer buyer, int lots) {
         if (buyMode) {
-            if (buyer != null) buyer.displayClientMessage(net.minecraft.network.chat.Component.literal("Магазин сейчас в режиме скупки."), true);
+            if (buyer != null) NetworkRegistration.sendShopToast(buyer, net.minecraft.network.chat.Component.literal("Магазин сейчас в режиме скупки."), false);
             return false;
         }
 
@@ -231,7 +290,7 @@ public void setPriceForMode(int mode, double price) {
 
         // Prevent buying from your own shop.
         if (owner.equals(buyer.getUUID())) {
-            buyer.displayClientMessage(net.minecraft.network.chat.Component.literal("Нельзя покупать у самого себя."), true);
+            NetworkRegistration.sendShopToast(buyer, net.minecraft.network.chat.Component.literal("Нельзя покупать у самого себя."), false);
             return false;
         }
 
@@ -322,52 +381,55 @@ public void setPriceForMode(int mode, double price) {
 public boolean trySellToShop(ServerPlayer seller, int lots) {
     if (lots <= 0) return false;
     if (!buyMode) {
-        seller.displayClientMessage(net.minecraft.network.chat.Component.literal("Магазин сейчас в режиме продажи."), true);
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.literal("Магазин сейчас в режиме продажи."), false);
         return false;
     }
     if (owner == null) {
-        seller.displayClientMessage(net.minecraft.network.chat.Component.literal("У магазина нет владельца."), true);
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.literal("У магазина нет владельца."), false);
         return false;
     }
 	    // Prevent selling to your own shop.
 	    if (owner.equals(seller.getUUID())) {
-	        seller.displayClientMessage(net.minecraft.network.chat.Component.translatable("msg.avilixeconomy.shop.self_trade"), true);
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.translatable("msg.avilixeconomy.shop.self_trade"), false);
 	        return false;
 	    }
     double pricePerLot = priceBuyPerLot;
     if (pricePerLot <= 0.0) {
-        seller.displayClientMessage(net.minecraft.network.chat.Component.literal("Цена скупки не установлена."), true);
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.literal("Цена скупки не установлена."), false);
         return false;
     }
     // Validate template
     java.util.List<net.minecraft.world.item.ItemStack> lot = getTemplateStacks();
     if (lot.isEmpty()) {
-        seller.displayClientMessage(net.minecraft.network.chat.Component.literal("Лот не настроен."), true);
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.literal("Лот не настроен."), false);
         return false;
     }
     // Check seller has required items
     if (!playerHasItems(seller, lot, lots)) {
-        seller.displayClientMessage(net.minecraft.network.chat.Component.literal("У вас нет нужных предметов для продажи."), true);
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.literal("У вас нет нужных предметов для продажи."), false);
         return false;
     }
     // Check stock has enough space (strict rule: if not enough space -> reject)
     int maxLotsBySpace = getAvailableLotsBySpace(lot);
     if (lots > maxLotsBySpace) {
-        seller.displayClientMessage(net.minecraft.network.chat.Component.literal("Недостаточно места на складе. Доступно лотов: " + maxLotsBySpace), true);
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.literal("Недостаточно места на складе. Доступно лотов: " + maxLotsBySpace), false);
         return false;
     }
     // Check owner has money
     double totalPrice = MoneyUtils.round2(pricePerLot * (double) lots);
-    double ownerBal = EconomyData.getBalance(owner);
+    double ownerBal = EconomyData.getCachedBalance(owner);
+    if (!EconomyData.isCached(owner)) {
+        ownerBal = EconomyData.getBalance(owner);
+    }
     long maxLotsByMoney = (pricePerLot <= 0.0) ? 0L : (long) Math.floor(ownerBal / pricePerLot);
     if (lots > maxLotsByMoney) {
-        seller.displayClientMessage(net.minecraft.network.chat.Component.literal("У владельца недостаточно средств. Доступно лотов: " + maxLotsByMoney), true);
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.literal("У владельца недостаточно средств. Доступно лотов: " + maxLotsByMoney), false);
         return false;
     }
 
     // Remove items from seller inventory
     if (!removeItemsFromPlayer(seller, lot, lots)) {
-        seller.displayClientMessage(net.minecraft.network.chat.Component.literal("Не удалось забрать предметы из инвентаря."), true);
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.literal("Не удалось забрать предметы из инвентаря."), false);
         return false;
     }
 
@@ -375,7 +437,7 @@ public boolean trySellToShop(ServerPlayer seller, int lots) {
     if (!insertLotIntoStock(lot, lots)) {
         // rollback: return items
         giveItemsToPlayer(seller, lot, lots);
-        seller.displayClientMessage(net.minecraft.network.chat.Component.literal("Склад переполнен. Продажа отменена."), true);
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.literal("Склад переполнен. Продажа отменена."), false);
         return false;
     }
 
@@ -395,8 +457,15 @@ public boolean trySellToShop(ServerPlayer seller, int lots) {
         // Try to extract back and give seller (best-effort)
         extractLotFromStock(lot, lots);
         giveItemsToPlayer(seller, lot, lots);
-        seller.displayClientMessage(net.minecraft.network.chat.Component.literal("Оплата не прошла. Продажа отменена."), true);
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.literal("Оплата не прошла. Продажа отменена."), false);
         return false;
+    }
+
+    // Force-send seller balance update using the live ServerPlayer connection.
+    // (Some servers report that the generic UUID-based sync can be missed during menu-driven actions.)
+    try {
+        EconomyData.sendBalanceUpdateToPlayer(seller);
+    } catch (Throwable ignored) {
     }
 
     // Log to DB as BUY (counterparty = seller)
@@ -424,6 +493,14 @@ public boolean trySellToShop(ServerPlayer seller, int lots) {
     }
 
     setChanged();
+    NetworkRegistration.sendShopToast(seller,
+            net.minecraft.network.chat.Component.translatable(
+                    "msg.avilixeconomy.shop.sold",
+                    lots,
+                    MoneyUtils.formatSmart(totalPrice)
+            ),
+            true
+    );
     return true;
 }
 
@@ -433,7 +510,10 @@ public int getAvailableBuyLots() {
     if (lot.isEmpty()) return 0;
     double price = priceBuyPerLot;
     if (price <= 0.0 || owner == null) return 0;
-    double ownerBal = EconomyData.getBalance(owner);
+    double ownerBal = EconomyData.getCachedBalance(owner);
+    if (!EconomyData.isCached(owner)) {
+        ownerBal = EconomyData.getBalance(owner);
+    }
     long byMoney = (price <= 0.0) ? 0L : (long) Math.floor(ownerBal / price);
     int bySpace = getAvailableLotsBySpace(lot);
     long min = Math.min(byMoney, (long) bySpace);

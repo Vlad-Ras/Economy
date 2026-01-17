@@ -9,6 +9,7 @@
   "msg.avilixeconomy.shop.price_set": "Цена установлена: %s",
   "msg.avilixeconomy.shop.purchase_failed": "Покупка не удалась.",
   "msg.avilixeconomy.shop.purchased": "Куплено лотов: %s (сумма: %s)",
+  "msg.avilixeconomy.shop.sold": "Продано лотов: %s (сумма: %s)",
   "msg.avilixeconomy.shop.too_expensive": "Слишком большая сумма.",
   "msg.avilixeconomy.shop.too_many": "Недостаточно товара. Доступно лотов: %s",
   "screen.avilixeconomy.shop.apply": "Применить",

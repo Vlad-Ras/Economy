@@ -1,10 +1,12 @@
 package com.roften.avilixeconomy.shop.block;
 
 import com.mojang.serialization.MapCodec;
+import com.roften.avilixeconomy.EconomyData;
 import com.roften.avilixeconomy.compat.OpenPacCompat;
 import com.roften.avilixeconomy.shop.blockentity.ShopBlockEntity;
 import com.roften.avilixeconomy.shop.menu.ShopBuyMenu;
 import com.roften.avilixeconomy.shop.menu.ShopConfigMenu;
+import com.roften.avilixeconomy.util.Permissions;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
@@ -103,7 +105,9 @@ public class ShopBlock extends BaseEntityBlock {
             return InteractionResult.CONSUME;
         }
 
-        if (!OpenPacCompat.canInteract(serverPlayer, serverLevel, pos, hit.getDirection(), InteractionHand.MAIN_HAND)) {
+        // Admin bypass (LuckPerms / PermissionAPI)
+        if (!Permissions.canOpenAnyShop(serverPlayer)
+                && !OpenPacCompat.canInteract(serverPlayer, serverLevel, pos, hit.getDirection(), InteractionHand.MAIN_HAND)) {
             return InteractionResult.FAIL;
         }
 
@@ -112,7 +116,7 @@ public class ShopBlock extends BaseEntityBlock {
             return InteractionResult.CONSUME;
         }
 
-        boolean owner = shop.isOwner(serverPlayer);
+        boolean owner = shop.isOwner(serverPlayer) || Permissions.canOpenAnyShop(serverPlayer);
         boolean wantsConfig = serverPlayer.isShiftKeyDown();
 
         if (wantsConfig) {
@@ -129,7 +133,12 @@ public class ShopBlock extends BaseEntityBlock {
             return InteractionResult.CONSUME;
         }
 
-        MenuProvider provider = new SimpleMenuProvider(
+                // Warm up owner balance cache once to avoid SQL spam from menu sync (available lots).
+        if (shop.getOwner() != null) {
+            EconomyData.warmupBalance(shop.getOwner());
+        }
+
+MenuProvider provider = new SimpleMenuProvider(
                 (id, inv, p) -> ShopBuyMenu.create(id, inv, shop),
                 Component.translatable("screen.avilixeconomy.shop.buy.title")
         );

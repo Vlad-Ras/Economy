@@ -18,6 +18,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import com.roften.avilixeconomy.database.DatabaseManager;
 import com.roften.avilixeconomy.shop.screen.ShopClientState;
+import com.roften.avilixeconomy.shop.screen.ShopToastState;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -57,6 +58,9 @@ public class NetworkRegistration {
     public static final ResourceLocation SHOP_SALES_PACKET_ID =
             ResourceLocation.fromNamespaceAndPath("avilixeconomy", "shop_sales");
 
+    public static final ResourceLocation SHOP_TOAST_PACKET_ID =
+            ResourceLocation.fromNamespaceAndPath("avilixeconomy", "shop_toast");
+
     // === P A Y L O A D ===
     
 public record ShopSetModePayload(BlockPos pos, boolean buyMode) implements CustomPacketPayload {
@@ -89,6 +93,28 @@ public record ShopSellPayload(BlockPos pos, int lots) implements CustomPacketPay
 
     @Override
     public Type<? extends CustomPacketPayload> type() { return TYPE; }
+}
+
+/**
+ * S->C toast-style messages that are rendered above the Shop GUI (not behind it).
+ * We intentionally send the component as JSON to avoid relying on internal packet codecs.
+ */
+public record ShopToastPayload(String messageJson, boolean success) implements CustomPacketPayload {
+    public static final Type<ShopToastPayload> TYPE = new Type<>(SHOP_TOAST_PACKET_ID);
+
+    public static final StreamCodec<RegistryFriendlyByteBuf, ShopToastPayload> CODEC =
+            StreamCodec.of(
+                    (buf, p) -> {
+                        buf.writeUtf(p.messageJson());
+                        buf.writeBoolean(p.success());
+                    },
+                    buf -> new ShopToastPayload(buf.readUtf(), buf.readBoolean())
+            );
+
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
+    }
 }
 
 public record BalancePayload(double balance) implements CustomPacketPayload {
@@ -268,6 +294,23 @@ public record BalancePayload(double balance) implements CustomPacketPayload {
                 )
         );
 
+        registrar.playToClient(
+                ShopToastPayload.TYPE,
+                ShopToastPayload.CODEC,
+                (payload, context) -> context.enqueueWork(() -> {
+	                    // 1.21+ serializer requires a HolderLookup.Provider.
+	                    // Use the player's registry access when available; otherwise fall back to EMPTY.
+	                    var lookup = (context.player() != null) ? context.player().registryAccess() : net.minecraft.core.RegistryAccess.EMPTY;
+                    Component c;
+                    try {
+	                        c = Component.Serializer.fromJson(payload.messageJson(), lookup);
+                    } catch (Throwable t) {
+                        c = Component.literal(payload.messageJson());
+                    }
+                    ShopToastState.push(c, payload.success());
+                })
+        );
+
         
 
 registrar.playToClient(
@@ -333,7 +376,7 @@ registrar.playToServer(
             if (!(sp.containerMenu instanceof ShopConfigMenu menu)) return;
             if (!menu.getPos().equals(payload.pos())) return;
             if (!(sp.level().getBlockEntity(payload.pos()) instanceof ShopBlockEntity shop)) return;
-            if (!shop.isOwner(sp)) return;
+            if (!shop.isOwner(sp) && !com.roften.avilixeconomy.util.Permissions.canOpenAnyShop(sp)) return;
 
             int limit = Math.max(1, Math.min(20, payload.limit()));
             int offset = Math.max(0, payload.offset());
@@ -376,11 +419,11 @@ registrar.playToServer(
                     if (!menu.getPos().equals(payload.pos())) return;
 
                     if (!(sp.level().getBlockEntity(payload.pos()) instanceof ShopBlockEntity shop)) return;
-                    if (!shop.isOwner(sp)) return;
+                    if (!shop.isOwner(sp) && !com.roften.avilixeconomy.util.Permissions.canOpenAnyShop(sp)) return;
 
                     double price = Math.max(0.0, payload.price());
                     shop.setPriceForMode(payload.mode(), price);
-                    sp.displayClientMessage(Component.translatable("msg.avilixeconomy.shop.price_set", com.roften.avilixeconomy.util.MoneyUtils.formatSmart(price)), true);
+                    sendShopToast(sp, Component.translatable("msg.avilixeconomy.shop.price_set", com.roften.avilixeconomy.util.MoneyUtils.formatSmart(price)), true);
                 })
         );
 
@@ -393,7 +436,7 @@ registrar.playToServer(
                     if (!menu.getPos().equals(payload.pos())) return;
 
                     if (!(sp.level().getBlockEntity(payload.pos()) instanceof ShopBlockEntity shop)) return;
-                    if (!shop.isOwner(sp)) return;
+                    if (!shop.isOwner(sp) && !com.roften.avilixeconomy.util.Permissions.canOpenAnyShop(sp)) return;
 
                     shop.setBuyMode(payload.buyMode());
                 })
@@ -430,21 +473,21 @@ registrar.playToServer(
 
                     int lots = payload.lots();
                     if (lots <= 0) {
-                        sp.displayClientMessage(Component.translatable("msg.avilixeconomy.shop.invalid_qty"), true);
+                        sendShopToast(sp, Component.translatable("msg.avilixeconomy.shop.invalid_qty"), false);
                         return;
                     }
                     if (shop.isTemplateEmpty()) {
-                        sp.displayClientMessage(Component.translatable("msg.avilixeconomy.shop.not_configured"), true);
+                        sendShopToast(sp, Component.translatable("msg.avilixeconomy.shop.not_configured"), false);
                         return;
                     }
 
                     int available = shop.getAvailableLots();
                     if (available <= 0) {
-                        sp.displayClientMessage(Component.translatable("msg.avilixeconomy.shop.out_of_stock"), true);
+                        sendShopToast(sp, Component.translatable("msg.avilixeconomy.shop.out_of_stock"), false);
                         return;
                     }
                     if (lots > available) {
-                        sp.displayClientMessage(Component.translatable("msg.avilixeconomy.shop.too_many", available), true);
+                        sendShopToast(sp, Component.translatable("msg.avilixeconomy.shop.too_many", available), false);
                         return;
                     }
 
@@ -452,15 +495,15 @@ registrar.playToServer(
                     double total = com.roften.avilixeconomy.util.MoneyUtils.round2(pricePer * (double) lots);
                     double bal = EconomyData.getBalance(sp.getUUID());
                     if (bal + 1e-9 < total) {
-                        sp.displayClientMessage(Component.translatable("msg.avilixeconomy.shop.not_enough_money", com.roften.avilixeconomy.util.MoneyUtils.formatSmart(total)), true);
+                        sendShopToast(sp, Component.translatable("msg.avilixeconomy.shop.not_enough_money", com.roften.avilixeconomy.util.MoneyUtils.formatSmart(total)), false);
                         return;
                     }
 
                     boolean ok = shop.tryBuy(sp, lots);
                     if (!ok) {
-                        sp.displayClientMessage(Component.translatable("msg.avilixeconomy.shop.purchase_failed"), true);
+                        sendShopToast(sp, Component.translatable("msg.avilixeconomy.shop.purchase_failed"), false);
                     } else {
-                        sp.displayClientMessage(Component.translatable("msg.avilixeconomy.shop.purchased", lots, com.roften.avilixeconomy.util.MoneyUtils.formatSmart(total)), true);
+                        sendShopToast(sp, Component.translatable("msg.avilixeconomy.shop.purchased", lots, com.roften.avilixeconomy.util.MoneyUtils.formatSmart(total)), true);
                     }
                 })
         );
@@ -491,6 +534,23 @@ registrar.playToServer(
                 leftReady,
                 rightReady
         ));
+    }
+
+    /**
+     * Send a toast-style message to be rendered above the Shop GUI.
+     */
+    public static void sendShopToast(ServerPlayer player, Component message, boolean success) {
+        if (player == null || message == null) return;
+        try {
+	            String json = Component.Serializer.toJson(message, player.registryAccess());
+            player.connection.send(new ShopToastPayload(json, success));
+        } catch (Throwable t) {
+            // fallback: best effort
+            try {
+                player.connection.send(new ShopToastPayload(message.getString(), success));
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
 

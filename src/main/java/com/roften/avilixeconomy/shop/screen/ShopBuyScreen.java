@@ -76,6 +76,13 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
     private int lastGuiH = -1;
     private boolean needsRelayout = true;
 
+    // --- JEI compatibility (computed screen-space bounds of the scaled UI) ---
+    public int getUiLeftScreen() { return uiLeft; }
+    public int getUiTopScreen() { return uiTop; }
+    public float getUiScale() { return uiScale; }
+    public int getScaledUiWidth() { return Math.round(this.imageWidth * this.uiScale); }
+    public int getScaledUiHeight() { return Math.round(this.imageHeight * this.uiScale); }
+
     public ShopBuyScreen(ShopBuyMenu menu, Inventory inv, Component title) {
         super(menu, inv, title);
         this.imageHeight = LEFT_H;
@@ -231,6 +238,7 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
     @Override
     protected void containerTick() {
         super.containerTick();
+        ShopToastState.tick();
         updateActionStateAndText();
     }
 
@@ -332,6 +340,9 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
 
         gfx.pose().popPose();
 
+        // Render shop toast ABOVE the UI (in screen space, so it is never hidden behind the window).
+        renderShopToast(gfx);
+
         this.suppressTooltip = false;
 
         super.renderTooltip(gfx, mouseX, mouseY);
@@ -352,6 +363,42 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
     public void renderTooltip(GuiGraphics gfx, int mouseX, int mouseY) {
         if (this.suppressTooltip) return;
         super.renderTooltip(gfx, mouseX, mouseY);
+    }
+
+    private void renderShopToast(GuiGraphics gfx) {
+        ShopToastState.Toast toast = ShopToastState.getCurrent();
+        if (toast == null) return;
+
+        Component msg = toast.message();
+        if (msg == null) return;
+
+        String s = msg.getString();
+        if (s.isEmpty()) return;
+
+        int textW = this.font.width(s);
+        int padX = 6;
+        int padY = 3;
+        int boxW = textW + padX * 2;
+        int boxH = this.font.lineHeight + padY * 2;
+
+        int scaledW = Math.round(this.imageWidth * this.uiScale);
+        int x = this.uiLeft + Math.max(0, (scaledW - boxW) / 2);
+        int y = this.uiTop - boxH - 4;
+
+        // clamp to screen
+        if (y < 2) y = 2;
+
+        int bg = 0xB0000000;
+        int fg = toast.success() ? 0x55FF55 : 0xFF5555;
+
+        gfx.fill(x, y, x + boxW, y + boxH, bg);
+        gfx.drawString(this.font, s, x + padX, y + padY, fg, false);
+    }
+
+    @Override
+    public void removed() {
+        super.removed();
+        ShopToastState.clear();
     }
 
     @Override
@@ -544,13 +591,16 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
             textY += 12;
         }
 
-        gfx.drawString(this.font,
-                Component.translatable("screen.avilixeconomy.shop.max_value", Integer.toString(max)),
-                textX, textY, 0x9A9A9A, false);
-
         // qty label (EditBox is a widget, positioned in relayoutWidgets)
         // Keep label safely above the EditBox (no clipping/overlap on any GUI scale).
         int qtyLabelY = this.qtyBox != null ? (this.qtyBox.getY() - 14) : (contentY + contentH - (BTN_H + 4 + BOX_H + 14));
+
+        // "MAX" line should never overlap the qty label, even on small windows / large GUI scales.
+        int maxLineY = Math.min(textY, qtyLabelY - 12);
+        gfx.drawString(this.font,
+                Component.translatable("screen.avilixeconomy.shop.max_value", Integer.toString(max)),
+                textX, maxLineY, 0x9A9A9A, false);
+
         gfx.drawString(this.font, Component.translatable("screen.avilixeconomy.shop.qty"), textX, qtyLabelY, 0xFFFFFF, false);
 
         RenderSystem.disableBlend();

@@ -34,6 +34,27 @@ public final class EconomyData {
         return cache.getOrDefault(uuid, 0.0);
     }
 
+    /** True if the UUID already has a cached balance (to avoid hitting SQL every tick). */
+    public static boolean isCached(UUID uuid) {
+        return cache.containsKey(uuid);
+    }
+
+    /** Warm up cache once (calls DB only if missing). */
+    public static void warmupBalance(UUID uuid) {
+        if (!cache.containsKey(uuid)) {
+            getBalance(uuid);
+        }
+    }
+
+    /** Force-send balance to a specific online player using the current cached value. */
+    public static void sendBalanceUpdateToPlayer(ServerPlayer player) {
+        if (player == null) return;
+        try {
+            double bal = cache.getOrDefault(player.getUUID(), 0.0);
+            NetworkUtils.sendBalanceToPlayer(player, bal);
+        } catch (Exception ignored) {}
+    }
+
     /** Прямое чтение из БД (без создания записи). */
     public static double getBalance(UUID uuid) {
         try {

@@ -10,6 +10,7 @@ import com.roften.avilixeconomy.registry.ModMenus;
 import com.roften.avilixeconomy.registry.CreativeTabEvents;
 import com.roften.avilixeconomy.shop.ShopInteractEvents;
 import com.roften.avilixeconomy.shop.ShopBreakProtectionEvents;
+import com.roften.avilixeconomy.util.Permissions;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -40,11 +41,17 @@ public class AvilixEconomy {
         // capabilities (hopper/Create compatibility for item storage)
         modBus.addListener(this::registerCapabilities);
 
+
         // -------- SERVER EVENTS --------
         NeoForge.EVENT_BUS.register(new EconomyEvents());
         NeoForge.EVENT_BUS.register(new ShopInteractEvents());
         NeoForge.EVENT_BUS.register(new ShopBreakProtectionEvents());
         NeoForge.EVENT_BUS.addListener(EconomyCommands::register);
+
+        // LuckPerms / PermissionAPI nodes
+        // LuckPerms (and any permission provider) can grant this node to bypass shop ownership.
+        // PermissionGatherEvent.Nodes is fired on the NeoForge bus, not the mod event bus.
+        NeoForge.EVENT_BUS.addListener(Permissions::gatherNodes);
 
         // -------- CLIENT --------
         if (FMLEnvironment.dist.isClient()) {
