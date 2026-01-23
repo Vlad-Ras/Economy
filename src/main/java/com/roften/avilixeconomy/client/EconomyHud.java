@@ -25,8 +25,18 @@ public class EconomyHud {
 
         String text = "Баланс: " + MoneyUtils.formatSmart(bal);
 
-        int x = 10;
-        int y = 10;
+        int x = HudPositionConfig.getX();
+        int y = HudPositionConfig.getY();
+
+        // safety clamp (чтобы не уехать за экран)
+        int sw = mc.getWindow().getGuiScaledWidth();
+        int sh = mc.getWindow().getGuiScaledHeight();
+        int w = font.width(text);
+        int h = font.lineHeight;
+        if (x < 0) x = 0;
+        if (y < 0) y = 0;
+        if (x > sw - w) x = Math.max(0, sw - w);
+        if (y > sh - h) y = Math.max(0, sh - h);
 
         g.drawString(font, text, x, y, 0xFFFFFF, true);
     }

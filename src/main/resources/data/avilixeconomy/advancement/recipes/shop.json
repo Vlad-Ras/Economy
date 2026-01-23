@@ -1,0 +1,33 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_oak_planks": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": ["minecraft:oak_planks"]
+          }
+        ]
+      }
+    },
+    "has_chest": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": ["minecraft:chest"]
+          }
+        ]
+      }
+    }
+  },
+  "requirements": [
+    ["has_oak_planks", "has_chest"]
+  ],
+  "rewards": {
+    "recipes": [
+      "avilixeconomy:shop"
+    ]
+  }
+}

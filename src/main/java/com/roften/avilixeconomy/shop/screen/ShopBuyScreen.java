@@ -35,6 +35,12 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
     private static final int LEFT_W = ShopBuyMenu.GUI_WIDTH;   // 176 (slots)
     private static final int LEFT_H = ShopBuyMenu.GUI_HEIGHT;  // 166
 
+    /**
+     * Extra vertical space to avoid text/widgets overlapping in buyback mode
+     * ("скупка"), when there are more info lines (commission + net payout).
+     */
+    private static final int EXTRA_H = 28;
+
     private static final int GAP_W = 10;
 
     private static final int TITLEBAR_H = 18;
@@ -76,6 +82,9 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
     private int lastGuiH = -1;
     private boolean needsRelayout = true;
 
+    /** Track current shop mode to trigger relayout when switching sell/buyback. */
+    private int lastModeForLayout = -1;
+
     // --- JEI compatibility (computed screen-space bounds of the scaled UI) ---
     public int getUiLeftScreen() { return uiLeft; }
     public int getUiTopScreen() { return uiTop; }
@@ -85,6 +94,7 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
 
     public ShopBuyScreen(ShopBuyMenu menu, Inventory inv, Component title) {
         super(menu, inv, title);
+        // Default height (extra height is enabled only in buyback mode, see updateLayoutDimensions()).
         this.imageHeight = LEFT_H;
         this.imageWidth = LEFT_W + GAP_W + this.rightW;
     }
@@ -98,12 +108,15 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
     }
 
     private void updateLayoutDimensions() {
+        // Add extra vertical room only in buyback mode ("скупка").
+        int extraH = (this.menu != null && this.menu.getMode() == 1) ? EXTRA_H : 0;
+
         int margin = 12;
         int reserved = JeiCompat.reservedRightPixels();
         int available = Math.max(0, (this.width - reserved) - margin * 2 - LEFT_W - GAP_W);
         this.rightW = clamp(available, RIGHT_MIN_W, RIGHT_MAX_W);
         this.imageWidth = LEFT_W + GAP_W + this.rightW;
-        this.imageHeight = LEFT_H;
+        this.imageHeight = LEFT_H + extraH;
     }
 
     @Override
@@ -239,6 +252,15 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
     protected void containerTick() {
         super.containerTick();
         ShopToastState.tick();
+
+        // If the server switches the shop mode while the screen is open, we must relayout,
+        // because buyback mode has more info lines (commission + net payout).
+        int mode = this.menu.getMode();
+        if (mode != this.lastModeForLayout) {
+            this.lastModeForLayout = mode;
+            this.needsRelayout = true;
+        }
+
         updateActionStateAndText();
     }
 
@@ -592,16 +614,28 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
         }
 
         // qty label (EditBox is a widget, positioned in relayoutWidgets)
-        // Keep label safely above the EditBox (no clipping/overlap on any GUI scale).
-        int qtyLabelY = this.qtyBox != null ? (this.qtyBox.getY() - 14) : (contentY + contentH - (BTN_H + 4 + BOX_H + 14));
+        // Keep label safely above the EditBox.
+        int qtyLabelY = this.qtyBox != null
+                ? (this.qtyBox.getY() - 14)
+                : (contentY + contentH - (BTN_H + 4 + BOX_H + 14));
 
-        // "MAX" line should never overlap the qty label, even on small windows / large GUI scales.
-        int maxLineY = Math.min(textY, qtyLabelY - 12);
-        gfx.drawString(this.font,
-                Component.translatable("screen.avilixeconomy.shop.max_value", Integer.toString(max)),
-                textX, maxLineY, 0x9A9A9A, false);
+        // Draw "MAX" on the same line as the qty label, but right-aligned in the panel.
+        // This prevents the classic overlap where the MAX line collides with the last info line
+        // (e.g. "У вас лотов") when the screen gets tight.
+        Component qtyLabel = Component.translatable("screen.avilixeconomy.shop.qty");
+        Component maxLine = Component.translatable("screen.avilixeconomy.shop.max_value", Integer.toString(max));
 
-        gfx.drawString(this.font, Component.translatable("screen.avilixeconomy.shop.qty"), textX, qtyLabelY, 0xFFFFFF, false);
+        gfx.drawString(this.font, qtyLabel, textX, qtyLabelY, 0xFFFFFF, false);
+
+        int maxX = x + rx + this.rightW - RIGHT_INNER_PAD - this.font.width(maxLine);
+        // If the right-aligned MAX would overlap the label, place it one line above.
+        int maxY = qtyLabelY;
+        int minMaxX = textX + this.font.width(qtyLabel) + 8;
+        if (maxX <= minMaxX) {
+            maxX = textX;
+            maxY = qtyLabelY - 12;
+        }
+        gfx.drawString(this.font, maxLine, maxX, maxY, 0x9A9A9A, false);
 
         RenderSystem.disableBlend();
         RenderSystem.enableDepthTest();

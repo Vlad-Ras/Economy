@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "group": "avilixeconomy:shop",
+  "pattern": [
+    "PPP",
+    "PCP",
+    "PPP"
+  ],
+  "key": {
+    "P": { "tag": "minecraft:planks" },
+    "C": { "item": "minecraft:chest" }
+  },
+  "result": {
+    "id": "avilixeconomy:shop",
+    "count": 1
+  }
+}

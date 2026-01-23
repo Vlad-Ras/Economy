@@ -2,6 +2,8 @@ package com.roften.avilixeconomy;
 
 import com.roften.avilixeconomy.client.ClientModEvents;
 import com.roften.avilixeconomy.client.EconomyHud;
+import com.roften.avilixeconomy.client.HudPositionConfig;
+import com.roften.avilixeconomy.client.hud.HudMoveController;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.common.NeoForge;
 
@@ -19,7 +21,14 @@ public final class ClientInit {
         modBus.addListener(ClientModEvents::onRegisterRenderers);
         modBus.addListener(ClientModEvents::onClientSetup);
 
+        // Keybinds (ModBus)
+        modBus.addListener(HudMoveController::onRegisterKeyMappings);
+
         // Register HUD (game event bus)
         NeoForge.EVENT_BUS.register(new EconomyHud());
+
+        // HUD position controller + load persisted coords
+        HudPositionConfig.load();
+        NeoForge.EVENT_BUS.register(new HudMoveController());
     }
 }

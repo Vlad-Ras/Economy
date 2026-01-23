@@ -235,13 +235,15 @@ public class ShopBlockEntityRenderer implements BlockEntityRenderer<ShopBlockEnt
                 // Lift rules (in addition to minY compensation):
                 // - handheld tools: +2px
                 // - torches: +2px (same as tools)
-                // - "paper-thin" items (books, rotten flesh, coils, etc.): +6px
+                // - "paper-thin" items (books, rotten flesh, coils, goggles, etc.): +2px
                 // NOTE: Create items (non-handheld) are NOT lifted by default, only by this thin-item rule.
                 if (isHandheld || isTorch) {
                     extraLift = clamp(extraLift + (2.0f / 16.0f), 0.0f, 0.30f);
                 }
                 if (needsThinLiftByName) {
-                    extraLift = clamp(extraLift + (6.0f / 16.0f), 0.0f, 0.45f);
+                    // Было слишком высоко: опускаем ровно на "ступеньку" (4px).
+                    // Раньше давали +6px, теперь +2px.
+                    extraLift = clamp(extraLift + (2.0f / 16.0f), 0.0f, 0.45f);
                 }
 
                 // IMPORTANT: Do NOT apply the BlockItem lift to custom-rendered models (Create and similar),
@@ -490,6 +492,12 @@ public class ShopBlockEntityRenderer implements BlockEntityRenderer<ShopBlockEnt
                 // Create coils/spools often have "coil" in the id.
                 String path = key.getPath();
                 if (path != null && (path.contains("coil") || path.contains("spool") || path.contains("reel"))) return true;
+
+                // Create Engineer's Goggles / goggles ("инженерные очки") — тоже тонкие и часто тонут в текстуре.
+                if ("create".equals(key.getNamespace()) && path != null && path.contains("goggles")) return true;
+
+                // На всякий: если любой предмет по id содержит goggles/eyewear — считаем тонким.
+                if (path != null && (path.contains("goggles") || path.contains("eyewear"))) return true;
             }
 
             String name = stack.getHoverName().getString();
@@ -502,6 +510,9 @@ public class ShopBlockEntityRenderer implements BlockEntityRenderer<ShopBlockEnt
             if (n.contains("гнил") || n.contains("rotten") || n.contains("flesh")) return true;
             // Coils / spools / reels (катушка)
             if (n.contains("катуш") || n.contains("coil") || n.contains("spool") || n.contains("reel")) return true;
+
+            // Engineer's goggles / goggles (очки)
+            if (n.contains("очки") || n.contains("goggles") || n.contains("eyewear")) return true;
         } catch (Throwable ignored) {
         }
         return false;

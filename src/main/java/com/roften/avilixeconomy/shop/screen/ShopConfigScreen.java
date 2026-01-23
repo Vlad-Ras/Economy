@@ -74,6 +74,11 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
     private Button applyButton;
     private Button modeButton;
 
+    // --- Price box sync ---
+    private boolean suppressPriceResponder = false;
+    private boolean priceDirtyByUser = false;
+    private double lastActivePriceSynced = Double.NaN;
+
     // Sales history
     private Button salesPrev;
     private Button salesNext;
@@ -172,12 +177,24 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
         this.priceBox.setMaxLength(19);
         this.priceBox.setFilter(s -> s.isEmpty() || s.chars().allMatch(ch -> (ch >= '0' && ch <= '9') || ch == '.' || ch == ','));
         this.priceBox.setHint(Component.literal("0"));
-        this.priceBox.setValue(MoneyUtils.formatSmart(Math.max(0.0, this.menu.getActivePriceSynced())));
+        // На момент init() синхронизированные DataSlots могут ещё не приехать.
+        // Поэтому значение будет подтягиваться в tick(), а тут ставим "первичное".
+        this.lastActivePriceSynced = this.menu.getActivePriceSynced();
+        this.suppressPriceResponder = true;
+        this.priceBox.setValue(MoneyUtils.formatSmart(Math.max(0.0, this.lastActivePriceSynced)));
+        this.suppressPriceResponder = false;
+        this.priceBox.setResponder(v -> {
+            if (!suppressPriceResponder) {
+                priceDirtyByUser = true;
+            }
+        });
         this.addRenderableWidget(this.priceBox);
 
         this.applyButton = Button.builder(Component.translatable("screen.avilixeconomy.shop.apply"), b -> {
             double price = MoneyUtils.parseSmart(this.priceBox.getValue());
             PacketDistributor.sendToServer(new NetworkRegistration.ShopSetPricePayload(this.menu.getPos(), this.menu.getMode(), price));
+            // После применения снова разрешаем автосинхронизацию значения.
+            this.priceDirtyByUser = false;
         }).bounds(0, 0, 120, BTN_H).build();
         this.addRenderableWidget(this.applyButton);
 
@@ -378,9 +395,20 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
         super.containerTick();
         ShopToastState.tick();
 
-        // Keep price in sync if player didn't type anything yet.
-        if (this.priceBox != null && !this.priceBox.isFocused() && (this.priceBox.getValue() == null || this.priceBox.getValue().isBlank())) {
-            this.priceBox.setValue(MoneyUtils.formatSmart(Math.max(0.0, this.menu.getActivePriceSynced())));
+        // Данные из DataSlots могут приехать через несколько тиков после init().
+        // Если игрок не редактировал поле цены, держим его синхронизированным с режимом (sell/buy)
+        // и текущей ценой на сервере, чтобы при открытии меню цена не "сбрасывалась" в 0.
+        if (this.priceBox != null && !this.priceDirtyByUser && !this.priceBox.isFocused()) {
+            double active = Math.max(0.0, this.menu.getActivePriceSynced());
+            if (Double.compare(active, this.lastActivePriceSynced) != 0 || this.lastActivePriceSynced != this.lastActivePriceSynced) {
+                this.lastActivePriceSynced = active;
+                String target = MoneyUtils.formatSmart(active);
+                if (!target.equals(this.priceBox.getValue())) {
+                    this.suppressPriceResponder = true;
+                    this.priceBox.setValue(target);
+                    this.suppressPriceResponder = false;
+                }
+            }
         }
 
         var page = ShopClientState.getSales(this.menu.getPos());
