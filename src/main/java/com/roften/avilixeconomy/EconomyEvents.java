@@ -23,7 +23,13 @@ public class EconomyEvents {
     // =============================
     @SubscribeEvent
     public void onServerAboutToStart(ServerAboutToStartEvent event) {
-        // Ensure server commission account exists
+        System.out.println("[Economy] Инициализация DatabaseManager...");
+        DatabaseManager.init();
+
+        // Load shelf render overrides (admin tuning)
+        com.roften.avilixeconomy.shop.render.RenderOverrideManager.reloadFromDb();
+
+        // Ensure server commission account exists (after DB init)
         try {
             java.util.UUID serverUuid = java.util.UUID.fromString(AvilixEconomyCommonConfig.ECONOMY.serverAccountUuid.get());
             String serverName = AvilixEconomyCommonConfig.ECONOMY.serverAccountName.get();
@@ -32,9 +38,6 @@ public class EconomyEvents {
         } catch (Exception e) {
             e.printStackTrace();
         }
-
-        System.out.println("[Economy] Инициализация DatabaseManager...");
-        DatabaseManager.init();
     }
 
     @SubscribeEvent
@@ -70,6 +73,15 @@ public class EconomyEvents {
 
             // ОБЯЗАТЕЛЬНО отправить баланс на клиент
             EconomyData.sendBalanceUpdateToPlayer(uuid);
+
+            if (player instanceof net.minecraft.server.level.ServerPlayer sp) {
+                // Also send render override snapshot (client cache)
+                try {
+                    var entries = com.roften.avilixeconomy.shop.render.RenderOverrideManager.snapshotAll();
+                    sp.connection.send(new com.roften.avilixeconomy.network.NetworkRegistration.ShopRenderOverridesSyncPayload(entries));
+                } catch (Throwable ignored) {
+                }
+            }
 
         } catch (Exception ex) {
             ex.printStackTrace();

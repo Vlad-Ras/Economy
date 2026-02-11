@@ -56,6 +56,8 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
 
     private EditBox qtyBox;
     private Button actionButton;
+    private Button tradeModeButton;
+    private boolean tradeBySlot = false;
 
     // Layout (dynamic)
     private int rightW = 220;
@@ -77,6 +79,7 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
 
     /** Hovered ghost item from the lot preview (rendered manually, not as slots). */
     private ItemStack hoveredGhost = ItemStack.EMPTY;
+    private int hoveredGhostSlot = -1;
 
     private int lastGuiW = -1;
     private int lastGuiH = -1;
@@ -142,6 +145,14 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
                 .bounds(0, 0, 120, BTN_H)
                 .build();
         this.addRenderableWidget(this.actionButton);
+
+
+this.tradeModeButton = Button.builder(Component.literal(""), b -> {
+    this.tradeBySlot = !this.tradeBySlot;
+    this.needsRelayout = true;
+    updateActionStateAndText();
+}).bounds(0, 0, 80, BTN_H).build();
+this.addRenderableWidget(this.tradeModeButton);
 
         this.needsRelayout = true;
         updateUiTransform();
@@ -214,6 +225,13 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
         int gap = 4;
         int buttonY = bottom - BTN_H;
         int boxY = buttonY - gap - BOX_H;
+        int modeY = boxY - gap - BTN_H;
+
+        if (this.tradeModeButton != null) {
+            this.tradeModeButton.setX(innerX);
+            this.tradeModeButton.setY(modeY);
+            this.tradeModeButton.setWidth(controlW);
+        }
 
         this.qtyBox.setX(innerX);
         this.qtyBox.setY(boxY);
@@ -268,9 +286,23 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
         if (this.actionButton == null) return;
 
         boolean sellingToShop = this.menu.getMode() == 1;
-        this.actionButton.setMessage(sellingToShop
-                ? Component.translatable("screen.avilixeconomy.shop.sell")
-                : Component.translatable("screen.avilixeconomy.shop.buy"));
+
+        if (this.tradeModeButton != null) {
+            this.tradeModeButton.setMessage(this.tradeBySlot
+                    ? Component.translatable("screen.avilixeconomy.shop.trade_mode_slot")
+                    : Component.translatable("screen.avilixeconomy.shop.trade_mode_lot"));
+        }
+
+        if (this.tradeBySlot) {
+            // Slot-mode: purchase happens by clicking a template slot in 3x3.
+            this.actionButton.setMessage(Component.translatable("screen.avilixeconomy.shop.click_slot"));
+            this.actionButton.active = false;
+        } else {
+            this.actionButton.active = true;
+            this.actionButton.setMessage(sellingToShop
+                    ? Component.translatable("screen.avilixeconomy.shop.sell")
+                    : Component.translatable("screen.avilixeconomy.shop.buy"));
+        }
 
         int lots = parseLots();
         int max = this.menu.getAvailableLots();
@@ -369,9 +401,44 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
 
         super.renderTooltip(gfx, mouseX, mouseY);
 
-        // Manual tooltip for the ghost lot preview.
+        // Manual tooltip for the ghost lot preview (+ show per-slot price).
         if (!this.hoveredGhost.isEmpty()) {
-            gfx.renderTooltip(this.font, this.hoveredGhost, mouseX, mouseY);
+            java.util.List<Component> lines = new java.util.ArrayList<>();
+            // base item tooltip
+            lines.add(this.hoveredGhost.getHoverName());
+
+            // price line
+            int slot = this.hoveredGhostSlot;
+            double price = 0.0;
+            double minTotal = 0.0;
+            double minPerItem = 0.0;
+            int count = 1;
+            var shop = this.menu.getShop();
+            if (shop != null && slot >= 0 && slot < 9) {
+                int mode = this.menu.getMode(); // 0=SELL (shop sells), 1=BUY (shop buys)
+                price = shop.getSlotPriceForMode(mode, slot);
+                var stack = shop.getTemplate().getStackInSlot(slot);
+                count = Math.max(1, stack.getCount());
+                minTotal = com.roften.avilixeconomy.pricing.MinPriceManager.getMinForStack(stack);
+                var id = stack.isEmpty() ? null : stack.getItem().builtInRegistryHolder().key().location();
+                minPerItem = com.roften.avilixeconomy.pricing.MinPriceManager.getMinPerItem(id);
+            }
+
+            if (price > 0.0) {
+                String perItem = MoneyUtils.formatSmart(MoneyUtils.round2(price / Math.max(1, count)));
+                lines.add(Component.literal("Цена слота: " + MoneyUtils.formatSmart(price) + " (" + perItem + " / 1шт)")
+                        .withStyle(net.minecraft.ChatFormatting.AQUA));
+            } else {
+                lines.add(Component.literal("Цена слота: не задана").withStyle(net.minecraft.ChatFormatting.RED));
+            }
+
+            if (minTotal > 0.0) {
+                String perItemMin = minPerItem > 0.0 ? (MoneyUtils.formatSmart(minPerItem) + " / 1шт") : "";
+                lines.add(Component.literal("Мин. цена: " + MoneyUtils.formatSmart(minTotal) + (perItemMin.isEmpty() ? "" : " (" + perItemMin + ")"))
+                        .withStyle(net.minecraft.ChatFormatting.DARK_GRAY));
+            }
+
+            gfx.renderTooltip(this.font, lines, java.util.Optional.empty(), mouseX, mouseY);
         }
     }
 
@@ -424,10 +491,45 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        updateUiTransform();
-        return super.mouseClicked((mouseX - this.uiLeft) / this.uiScale, (mouseY - this.uiTop) / this.uiScale, button);
+public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    updateUiTransform();
+
+    // Convert to UI-space coordinates (our widgets are placed in UI-space)
+    double ux = (mouseX - this.uiLeft) / this.uiScale;
+    double uy = (mouseY - this.uiTop) / this.uiScale;
+
+    // Slot-mode: clicking on a template slot (3x3) performs a trade for that slot.
+    if (this.tradeBySlot && button == 0) {
+        int templateX = ShopBuyMenu.TEMPLATE_X;
+        int templateY = ShopBuyMenu.TEMPLATE_Y;
+
+        int relX = (int) Math.floor(ux) - templateX;
+        int relY = (int) Math.floor(uy) - templateY;
+
+        if (relX >= 0 && relY >= 0 && relX < 54 && relY < 54) {
+            int col = relX / 18;
+            int row = relY / 18;
+            int slot = row * 3 + col;
+            if (slot >= 0 && slot < 9) {
+                var shop = this.menu.getShop();
+                if (shop != null) {
+                    var req = shop.getTemplate().getStackInSlot(slot);
+                    if (req != null && !req.isEmpty()) {
+                        int units = parseLots();
+                        if (units <= 0) units = 1;
+                        if (hasShiftDown()) units = Integer.MAX_VALUE;
+
+                        PacketDistributor.sendToServer(new NetworkRegistration.ShopSlotTradePayload(this.menu.getPos(), slot, units));
+                        return true;
+                    }
+                }
+            }
+        }
     }
+
+    return super.mouseClicked(ux, uy, button);
+}
+
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
@@ -480,6 +582,7 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
 
         // Reset hovered ghost each frame.
         this.hoveredGhost = ItemStack.EMPTY;
+        this.hoveredGhostSlot = -1;
 
         ShopUi.drawDropShadow(gfx, x, y, this.imageWidth, this.imageHeight);
         ShopUi.drawWindowFrame(gfx, x, y, this.imageWidth, this.imageHeight);
@@ -545,6 +648,7 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
             int hy = y + templateY + r * 18;
             if (mouseX >= hx && mouseX < hx + 18 && mouseY >= hy && mouseY < hy + 18) {
                 this.hoveredGhost = stack;
+                this.hoveredGhostSlot = i;
             }
         }
 

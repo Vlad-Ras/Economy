@@ -85,19 +85,56 @@ public final class EconomyData {
 
     /** Установка баланса (INSERT OR UPDATE). */
     public static boolean setBalance(UUID uuid, double amount, String nameIfNew) {
-        try (Connection c = DatabaseManager.getConnection();
-             PreparedStatement ps = c.prepareStatement(
-                     "INSERT INTO economy (uuid, name, balance) VALUES (?, ?, ?) " +
-                             "ON DUPLICATE KEY UPDATE balance = VALUES(balance), name = VALUES(name)"
-             )) {
+        return setBalance(uuid, amount, nameIfNew, "SET", null, null, null);
+    }
 
-            ps.setString(1, uuid.toString());
-            ps.setString(2, nameIfNew != null ? nameIfNew : "unknown");
-            ps.setBigDecimal(3, MoneyUtils.toDb(MoneyUtils.round2(amount)));
-            ps.executeUpdate();
+    /** Установка баланса с логированием в историю. */
+    public static boolean setBalance(UUID uuid, double amount, String nameIfNew,
+                                     String reason, UUID actorUuid, String actorName, String metaJson) {
+        if (uuid == null) return false;
+        double target = MoneyUtils.round2(amount);
+        try (Connection c = DatabaseManager.getConnection()) {
+            c.setAutoCommit(false);
 
-            cache.put(uuid, MoneyUtils.round2(amount));
+            double before = 0.0;
+            String knownName = null;
+            boolean exists;
+
+            try (PreparedStatement sel = c.prepareStatement(
+                    "SELECT name, balance FROM economy WHERE uuid = ? FOR UPDATE"
+            )) {
+                sel.setString(1, uuid.toString());
+                try (ResultSet rs = sel.executeQuery()) {
+                    exists = rs.next();
+                    if (exists) {
+                        knownName = rs.getString("name");
+                        before = MoneyUtils.fromDb(rs.getBigDecimal("balance"));
+                    }
+                }
+            }
+
+            String name = (nameIfNew != null && !nameIfNew.isBlank()) ? nameIfNew : (knownName != null ? knownName : "unknown");
+            double after = Math.max(0.0, target);
+
+            try (PreparedStatement ps = c.prepareStatement(
+                    "INSERT INTO economy (uuid, name, balance) VALUES (?, ?, ?) " +
+                            "ON DUPLICATE KEY UPDATE balance = VALUES(balance), name = VALUES(name)"
+            )) {
+                ps.setString(1, uuid.toString());
+                ps.setString(2, name);
+                ps.setBigDecimal(3, MoneyUtils.toDb(after));
+                ps.executeUpdate();
+            }
+
+            c.commit();
+
+            cache.put(uuid, after);
             sendBalanceUpdateToPlayer(uuid);
+
+            double delta = MoneyUtils.round2(after - before);
+            if (delta != 0.0) {
+                DatabaseManager.insertBalanceHistoryAsync(uuid, name, delta, before, after, reason, metaJson, actorUuid, actorName);
+            }
             return true;
 
         } catch (Exception e) {
@@ -108,6 +145,12 @@ public final class EconomyData {
 
     /** Добавление суммы с защитой от отрицательных значений. */
     public static boolean addBalance(UUID uuid, double amount) {
+        return addBalance(uuid, amount, amount >= 0 ? "ADD" : "REMOVE", null, null, null);
+    }
+
+    /** Добавление суммы с логированием в историю. */
+    public static boolean addBalance(UUID uuid, double amount,
+                                     String reason, UUID actorUuid, String actorName, String metaJson) {
         try (Connection c = DatabaseManager.getConnection()) {
             c.setAutoCommit(false);
 
@@ -148,6 +191,14 @@ public final class EconomyData {
             c.commit();
             cache.put(uuid, next);
             sendBalanceUpdateToPlayer(uuid);
+
+            // history
+            String playerName = DatabaseManager.getPlayerNameDirect(uuid);
+            if (playerName == null) playerName = "unknown";
+            double delta = MoneyUtils.round2(next - current);
+            if (delta != 0.0) {
+                DatabaseManager.insertBalanceHistoryAsync(uuid, playerName, delta, current, next, reason, metaJson, actorUuid, actorName);
+            }
             return true;
 
         } catch (Exception e) {
@@ -234,6 +285,16 @@ public final class EconomyData {
             cache.put(to, MoneyUtils.round2(balTo + amount));
             sendBalanceUpdateToPlayer(from);
             sendBalanceUpdateToPlayer(to);
+
+            // history
+            String fromName = DatabaseManager.getPlayerNameDirect(from);
+            if (fromName == null) fromName = "unknown";
+            String toName = DatabaseManager.getPlayerNameDirect(to);
+            if (toName == null) toName = "unknown";
+            DatabaseManager.insertBalanceHistoryAsync(from, fromName, -MoneyUtils.round2(amount), balFrom, MoneyUtils.round2(balFrom - amount),
+                    "PAY_OUT", null, from, fromName);
+            DatabaseManager.insertBalanceHistoryAsync(to, toName, MoneyUtils.round2(amount), balTo, MoneyUtils.round2(balTo + amount),
+                    "PAY_IN", null, from, fromName);
             return true;
 
         } catch (Exception e) {
@@ -367,6 +428,25 @@ public final class EconomyData {
             sendBalanceUpdateToPlayer(from);
             sendBalanceUpdateToPlayer(toA);
             sendBalanceUpdateToPlayer(toB);
+
+            // history
+            String fromName = DatabaseManager.getPlayerNameDirect(from);
+            if (fromName == null) fromName = "unknown";
+            String toAName = DatabaseManager.getPlayerNameDirect(toA);
+            if (toAName == null) toAName = "unknown";
+            String toBName = DatabaseManager.getPlayerNameDirect(toB);
+            if (toBName == null) toBName = "unknown";
+
+            DatabaseManager.insertBalanceHistoryAsync(from, fromName, -total, balFrom, MoneyUtils.round2(balFrom - total),
+                    "PAY_SPLIT_OUT", null, from, fromName);
+            if (amountToA > 0) {
+                DatabaseManager.insertBalanceHistoryAsync(toA, toAName, MoneyUtils.round2(amountToA), balA, MoneyUtils.round2((existsA ? balA : 0.0) + amountToA),
+                        "PAY_SPLIT_IN", null, from, fromName);
+            }
+            if (amountToB > 0) {
+                DatabaseManager.insertBalanceHistoryAsync(toB, toBName, MoneyUtils.round2(amountToB), balB, MoneyUtils.round2((existsB ? balB : 0.0) + amountToB),
+                        "PAY_SPLIT_IN", null, from, fromName);
+            }
 
             return true;
         } catch (Exception e) {

@@ -71,8 +71,14 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
     private RightTab rightTab = RightTab.SETTINGS;
 
     private EditBox priceBox;
+    private Button priceTypeButton;
+    private boolean editSlotPrice = false;
     private Button applyButton;
     private Button modeButton;
+    private Button renderTuneButton;
+
+    // Selected template slot for per-item pricing (0..8)
+    private int selectedTemplateSlot = 0;
 
     // --- Price box sync ---
     private boolean suppressPriceResponder = false;
@@ -164,6 +170,9 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
     protected void init() {
         super.init();
 
+        this.selectedTemplateSlot = 0;
+        this.menu.setSelectedTemplateSlot(0);
+
         // Diagnostic stamp: helps confirm runClient is using latest sources.
         AvilixEconomy.LOGGER.info(UiKit.GUI_BUILD_STAMP);
 
@@ -192,7 +201,11 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
 
         this.applyButton = Button.builder(Component.translatable("screen.avilixeconomy.shop.apply"), b -> {
             double price = MoneyUtils.parseSmart(this.priceBox.getValue());
-            PacketDistributor.sendToServer(new NetworkRegistration.ShopSetPricePayload(this.menu.getPos(), this.menu.getMode(), price));
+            if (this.editSlotPrice) {
+                PacketDistributor.sendToServer(new NetworkRegistration.ShopSetSlotPricePayload(this.menu.getPos(), this.menu.getMode(), this.selectedTemplateSlot, price));
+            } else {
+                PacketDistributor.sendToServer(new NetworkRegistration.ShopSetPricePayload(this.menu.getPos(), this.menu.getMode(), price));
+            }
             // После применения снова разрешаем автосинхронизацию значения.
             this.priceDirtyByUser = false;
         }).bounds(0, 0, 120, BTN_H).build();
@@ -203,6 +216,26 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
             PacketDistributor.sendToServer(new NetworkRegistration.ShopSetModePayload(this.menu.getPos(), wantBuy));
         }).bounds(0, 0, 120, BTN_H).build();
         this.addRenderableWidget(this.modeButton);
+
+        
+this.priceTypeButton = Button.builder(Component.literal(""), b -> {
+    // toggle between per-lot and per-slot pricing
+    this.editSlotPrice = !this.editSlotPrice;
+    // refresh input from synced value
+    this.priceDirtyByUser = false;
+    double v = this.editSlotPrice ? this.menu.getActiveSlotPriceSynced() : this.menu.getActivePriceSynced();
+    this.suppressPriceResponder = true;
+    this.priceBox.setValue(MoneyUtils.formatSmart(Math.max(0.0, v)));
+    this.suppressPriceResponder = false;
+    this.needsRelayout = true;
+}).bounds(0, 0, 80, BTN_H).build();
+this.addRenderableWidget(this.priceTypeButton);
+
+this.renderTuneButton = Button.builder(Component.translatable("screen.avilixeconomy.shop.render_tune"), b -> {
+            // Open tuner as a child screen (container stays open).
+            Minecraft.getInstance().setScreen(new com.roften.avilixeconomy.shop.screen.render.ShopRenderTunerScreen(this, this.menu));
+        }).bounds(0, 0, 120, BTN_H).build();
+        this.addRenderableWidget(this.renderTuneButton);
 
         this.salesPrev = Button.builder(Component.literal("<"), b -> {
             if (this.salesLoading) return;
@@ -295,6 +328,13 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
         this.modeButton.setY(y);
         this.modeButton.setWidth(controlW);
 
+        y += 22;
+        if (this.priceTypeButton != null) {
+            this.priceTypeButton.setX(innerX);
+            this.priceTypeButton.setY(y);
+            this.priceTypeButton.setWidth(controlW);
+        }
+
         y += 26;
         this.priceBox.setX(innerX);
         this.priceBox.setY(y);
@@ -304,6 +344,11 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
         this.applyButton.setX(innerX);
         this.applyButton.setY(y);
         this.applyButton.setWidth(controlW);
+
+        y += 22;
+        this.renderTuneButton.setX(innerX);
+        this.renderTuneButton.setY(y);
+        this.renderTuneButton.setWidth(controlW);
 
         // Sales paging buttons in footer
         int footerY = panelY + panelH - (NAV_BTN + 6);
@@ -343,6 +388,13 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
 
         this.applyButton.visible = settings;
         this.applyButton.active = settings;
+
+        // Always show the button on the Settings tab so it's discoverable.
+        // Security is enforced server-side when processing C2S payloads.
+        // If the player lacks permission, the button is simply disabled.
+        boolean canRenderTune = this.menu.canEditRender();
+        this.renderTuneButton.visible = settings;
+        this.renderTuneButton.active = settings && canRenderTune;
 
         this.salesPrev.visible = sales;
         this.salesPrev.active = sales && this.salesOffset > 0 && !this.salesLoading;
@@ -399,7 +451,7 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
         // Если игрок не редактировал поле цены, держим его синхронизированным с режимом (sell/buy)
         // и текущей ценой на сервере, чтобы при открытии меню цена не "сбрасывалась" в 0.
         if (this.priceBox != null && !this.priceDirtyByUser && !this.priceBox.isFocused()) {
-            double active = Math.max(0.0, this.menu.getActivePriceSynced());
+            double active = Math.max(0.0, this.editSlotPrice ? this.menu.getActiveSlotPriceSynced() : this.menu.getActivePriceSynced());
             if (Double.compare(active, this.lastActivePriceSynced) != 0 || this.lastActivePriceSynced != this.lastActivePriceSynced) {
                 this.lastActivePriceSynced = active;
                 String target = MoneyUtils.formatSmart(active);
@@ -427,6 +479,11 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
             this.modeButton.setMessage(this.menu.getMode() == 1
                     ? Component.translatable("screen.avilixeconomy.shop.mode_buy_short")
                     : Component.translatable("screen.avilixeconomy.shop.mode_sell_short"));
+        }
+        if (this.priceTypeButton != null) {
+            this.priceTypeButton.setMessage(this.editSlotPrice
+                    ? Component.translatable("screen.avilixeconomy.shop.price_type_slot")
+                    : Component.translatable("screen.avilixeconomy.shop.price_type_lot"));
         }
     }
 
@@ -514,6 +571,27 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
         updateUiTransform();
         double ux = (mouseX - this.uiLeft) / this.uiScale;
         double uy = (mouseY - this.uiTop) / this.uiScale;
+
+        // Per-slot pricing: clicking a template slot selects it for price editing.
+        if (this.editSlotPrice && button == 0) {
+            int gx = (int) ux - ShopConfigMenu.TEMPLATE_X;
+            int gy = (int) uy - ShopConfigMenu.TEMPLATE_Y;
+            if (gx >= 0 && gy >= 0 && gx < 18 * 3 && gy < 18 * 3) {
+                int c = gx / 18;
+                int r = gy / 18;
+                int slot = r * 3 + c;
+                if (slot >= 0 && slot < 9) {
+                    this.selectedTemplateSlot = slot;
+                    this.menu.setSelectedTemplateSlot(slot);
+                    // refresh price box from selected slot
+                    this.priceDirtyByUser = false;
+                    double v = this.menu.getActiveSlotPriceSynced();
+                    this.suppressPriceResponder = true;
+                    this.priceBox.setValue(MoneyUtils.formatSmart(Math.max(0.0, v)));
+                    this.suppressPriceResponder = false;
+                }
+            }
+        }
 
         if (button == 0 && handleTabClick((int) ux, (int) uy)) return true;
         return super.mouseClicked(ux, uy, button);
@@ -604,6 +682,19 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
         ShopUi.drawPanel(gfx, x + ShopConfigMenu.TEMPLATE_X - 1, y + ShopConfigMenu.TEMPLATE_Y - 1, 3 * 18 + 2, 3 * 18 + 2);
         ShopUi.drawSubHeader(gfx, this.font, x + ShopConfigMenu.TEMPLATE_X - 1, y + ShopConfigMenu.TEMPLATE_Y - hdrPad, 3 * 18 + 2, SECTION_H, lotLabel);
         ShopUi.drawSlotGrid(gfx, x + ShopConfigMenu.TEMPLATE_X, y + ShopConfigMenu.TEMPLATE_Y, 3, 3);
+
+        // Visual selection when editing per-slot price.
+        if (this.editSlotPrice) {
+            int sel = Math.max(0, Math.min(8, this.selectedTemplateSlot));
+            int sx = x + ShopConfigMenu.TEMPLATE_X + (sel % 3) * 18;
+            int sy = y + ShopConfigMenu.TEMPLATE_Y + (sel / 3) * 18;
+            int c = 0xA0FFFF00; // translucent yellow
+            // border (18x18)
+            gfx.fill(sx, sy, sx + 18, sy + 1, c);
+            gfx.fill(sx, sy + 17, sx + 18, sy + 18, c);
+            gfx.fill(sx, sy + 1, sx + 1, sy + 17, c);
+            gfx.fill(sx + 17, sy + 1, sx + 18, sy + 17, c);
+        }
 
         // Stock 6x9
         ShopUi.drawPanel(gfx, x + ShopConfigMenu.STOCK_X - 1, y + ShopConfigMenu.STOCK_Y - 1, 9 * 18 + 2, 6 * 18 + 2);
