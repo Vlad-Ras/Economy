@@ -1,0 +1,17 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.price_changed.name",
+  "icon": "minecraft:clock",
+  "category": "faq",
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.price_changed.t1",
+      "text": "guide.avilixeconomy.shopbook.e.price_changed.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.price_changed.t2",
+      "text": "guide.avilixeconomy.shopbook.e.price_changed.p2"
+    }
+  ]
+}

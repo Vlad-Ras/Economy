@@ -1,0 +1,17 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.price_per_item.name",
+  "icon": "minecraft:gold_nugget",
+  "category": "avilixeconomy:pricing",
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.price_per_item.t1",
+      "text": "guide.avilixeconomy.shopbook.e.price_per_item.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.price_per_item.t2",
+      "text": "guide.avilixeconomy.shopbook.e.price_per_item.p2"
+    }
+  ]
+}

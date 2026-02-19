@@ -11,6 +11,14 @@ import java.math.RoundingMode;
 public final class MoneyUtils {
     private MoneyUtils() {}
 
+    /**
+     * Currency name used across the mod.
+     * Requirements: currency is always called "Нокс".
+     */
+    public static final String CURRENCY_SINGULAR = "Нокс";
+    public static final String CURRENCY_GEN_SINGULAR = "Нокса";
+    public static final String CURRENCY_GEN_PLURAL = "Ноксов";
+
     public static double round2(double v) {
         return BigDecimal.valueOf(v).setScale(2, RoundingMode.HALF_UP).doubleValue();
     }
@@ -21,6 +29,40 @@ public final class MoneyUtils {
         // Avoid "-0"
         if (bd.compareTo(BigDecimal.ZERO) == 0) return "0";
         return bd.toPlainString();
+    }
+
+    /**
+     * Formats amount with currency suffix, e.g. "100 Ноксов".
+     * Uses basic Russian declension for integer values; for decimals falls back to "Нокс".
+     */
+    public static String formatNoks(double v) {
+        return formatSmart(v) + " " + currencyWord(v);
+    }
+
+    /** Same as {@link #formatNoks(double)} but ensures a + sign for positive values. */
+    public static String formatNoksSigned(double v) {
+        String sign = v > 0 ? "+" : "";
+        return sign + formatNoks(v);
+    }
+
+    /**
+     * Returns a currency word for the given amount.
+     * 1 -> Нокс, 2-4 -> Нокса, 5+ -> Ноксов. Decimals -> Нокс.
+     */
+    public static String currencyWord(double v) {
+        double av = Math.abs(v);
+        // If not an integer (within epsilon), avoid tricky declension.
+        // We intentionally use a slightly larger epsilon to tolerate typical double noise
+        // (e.g. 128.0000000001) coming from calculations and DB round-trips.
+        if (Math.abs(av - Math.rint(av)) > 1e-6) {
+            return CURRENCY_SINGULAR;
+        }
+        long n = (long) Math.abs(Math.round(av));
+        long mod10 = n % 10;
+        long mod100 = n % 100;
+        if (mod10 == 1 && mod100 != 11) return CURRENCY_SINGULAR;
+        if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return CURRENCY_GEN_SINGULAR;
+        return CURRENCY_GEN_PLURAL;
     }
 
     /** Parse user input like "1.25" or "1,25" into a rounded value (2 decimals). */

@@ -1,0 +1,23 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.slot_buy.name",
+  "category": "avilixeconomy:shop_guide/buying",
+  "icon": "minecraft:hopper",
+  "sortnum": 1,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.slot_buy.t",
+      "text": "guide.avilixeconomy.shopbook.e.slot_buy.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.slot_buy.t2",
+      "text": "guide.avilixeconomy.shopbook.e.slot_buy.p2"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.slot_buy.t3",
+      "text": "guide.avilixeconomy.shopbook.e.slot_buy.p3"
+    }
+  ]
+}

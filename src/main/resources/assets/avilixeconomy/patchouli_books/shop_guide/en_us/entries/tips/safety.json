@@ -1,0 +1,17 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.safety.name",
+  "icon": "minecraft:shield",
+  "category": "avilixeconomy:tips",
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.safety.t1",
+      "text": "guide.avilixeconomy.shopbook.e.safety.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.safety.t2",
+      "text": "guide.avilixeconomy.shopbook.e.safety.p2"
+    }
+  ]
+}

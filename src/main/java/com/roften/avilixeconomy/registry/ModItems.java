@@ -1,6 +1,7 @@
 package com.roften.avilixeconomy.registry;
 
 import com.roften.avilixeconomy.AvilixEconomy;
+import com.roften.avilixeconomy.item.ShopGuideItem;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
@@ -19,6 +20,10 @@ public final class ModItems {
 
     public static final DeferredHolder<Item, Item> SHOP =
             ITEMS.register("shop", () -> new BlockItem(ModBlocks.SHOP.get(), new Item.Properties()));
+
+    public static final DeferredHolder<Item, Item> SHOP_GUIDE =
+            ITEMS.register("shop_guide", () -> new ShopGuideItem(new Item.Properties().stacksTo(1)));
+
 
     public static void register(IEventBus modBus) {
         ITEMS.register(modBus);

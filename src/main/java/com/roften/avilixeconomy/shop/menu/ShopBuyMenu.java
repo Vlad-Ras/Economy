@@ -50,6 +50,8 @@ public class ShopBuyMenu extends AbstractContainerMenu {
     private int syncedMode;
     private int priceLo;
     private int priceHi;
+    private int slotPriceLo;
+    private int slotPriceHi;
     private int availableLots;
     private int commissionBps;
 
@@ -95,6 +97,22 @@ public class ShopBuyMenu extends AbstractContainerMenu {
             }
             @Override public void set(int value) { priceHi = value; }
         });
+
+this.addDataSlot(new DataSlot() {
+    @Override public int get() {
+        long bits = Double.doubleToRawLongBits(shop != null ? shop.getActivePricePerSlot() : 0.0);
+        return (int) (bits & 0xFFFFFFFFL);
+    }
+    @Override public void set(int value) { slotPriceLo = value; }
+});
+this.addDataSlot(new DataSlot() {
+    @Override public int get() {
+        long bits = Double.doubleToRawLongBits(shop != null ? shop.getActivePricePerSlot() : 0.0);
+        return (int) ((bits >>> 32) & 0xFFFFFFFFL);
+    }
+    @Override public void set(int value) { slotPriceHi = value; }
+});
+
         this.addDataSlot(new DataSlot() {
             @Override public int get() {
                 return shop != null
@@ -167,6 +185,12 @@ public class ShopBuyMenu extends AbstractContainerMenu {
     /** Active (current mode) price-per-lot synced from server. */
     public double getPricePerLot() {
         long bits = ((long) priceHi << 32) | (priceLo & 0xFFFFFFFFL);
+        return Double.longBitsToDouble(bits);
+    }
+
+    /** Active (current mode) price-per-slot synced from server. */
+    public double getPricePerSlot() {
+        long bits = ((long) slotPriceHi << 32) | (slotPriceLo & 0xFFFFFFFFL);
         return Double.longBitsToDouble(bits);
     }
 

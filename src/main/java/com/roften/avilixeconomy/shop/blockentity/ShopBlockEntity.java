@@ -4,6 +4,7 @@ import com.roften.avilixeconomy.EconomyData;
 import com.roften.avilixeconomy.commission.CommissionManager;
 import com.roften.avilixeconomy.config.AvilixEconomyCommonConfig;
 import com.roften.avilixeconomy.database.DatabaseManager;
+import com.roften.avilixeconomy.pricing.MinPriceManager;
 import com.roften.avilixeconomy.network.NetworkUtils;
 import com.roften.avilixeconomy.util.MoneyUtils;
 import com.roften.avilixeconomy.network.NetworkRegistration;
@@ -37,6 +38,13 @@ public class ShopBlockEntity extends BlockEntity {
     private static final String TAG_STOCK = "Stock";
     private static final String TAG_PRICE = "Price";
     private static final String TAG_PRICE_BUY = "PriceBuy";
+    // Legacy (single per-slot price)
+    private static final String TAG_PRICE_SLOT = "PriceSlot";
+    private static final String TAG_PRICE_BUY_SLOT = "PriceBuySlot";
+
+    // New (per-template-slot prices)
+    private static final String TAG_PRICE_SLOTS = "PriceSlots";
+    private static final String TAG_PRICE_BUY_SLOTS = "PriceBuySlots";
     private static final String TAG_MODE = "ModeBuy";
 
     @Nullable
@@ -45,8 +53,22 @@ public class ShopBlockEntity extends BlockEntity {
     @Nullable
     private String ownerName;
 
+    // Legacy: per-lot override prices (still supported)
     private double priceSellPerLot;
     private double priceBuyPerLot;
+
+    /**
+     * Per-template-slot prices.
+     * "Lot" in this mod is a 3x3 template. Each template slot can have its own price.
+     * When buying/selling the whole lot, the effective lot price is the sum of slot prices
+     * (unless a legacy override price is set).
+     */
+    private final double[] priceSellPerTemplateSlot = new double[TEMPLATE_SLOTS];
+    private final double[] priceBuyPerTemplateSlot = new double[TEMPLATE_SLOTS];
+
+    // Backward compat: old single per-slot price fields; used only for migration when loading old NBT
+    private double legacyPriceSellPerSlot;
+    private double legacyPriceBuyPerSlot;
     private boolean buyMode;
 
     // ===== cached computed values (server-side) =====
@@ -91,7 +113,11 @@ public class ShopBlockEntity extends BlockEntity {
     }
 
     public void setPricePerLot(double priceSellPerLot) {
-        this.priceSellPerLot = Math.max(0.0, MoneyUtils.round2(priceSellPerLot));
+        double v = Math.max(0.0, MoneyUtils.round2(priceSellPerLot));
+        // Min price is per item; for a full lot we use the sum of mins for all template stacks.
+        double minLot = MinPriceManager.getMinForTemplate(template);
+        if (minLot > 0.0 && v > 0.0 && v < minLot) v = MoneyUtils.round2(minLot);
+        this.priceSellPerLot = v;
         setChanged();
         syncToClient();
     }
@@ -101,7 +127,10 @@ public double getPriceBuyPerLot() {
 }
 
 public void setPriceBuyPerLot(double priceBuyPerLot) {
-    this.priceBuyPerLot = Math.max(0.0, MoneyUtils.round2(priceBuyPerLot));
+    double v = Math.max(0.0, MoneyUtils.round2(priceBuyPerLot));
+    double minLot = MinPriceManager.getMinForTemplate(template);
+    if (minLot > 0.0 && v > 0.0 && v < minLot) v = MoneyUtils.round2(minLot);
+    this.priceBuyPerLot = v;
     setChanged();
     syncToClient();
 }
@@ -117,7 +146,23 @@ public void setBuyMode(boolean buyMode) {
 }
 
 public double getActivePricePerLot() {
-    return buyMode ? priceBuyPerLot : priceSellPerLot;
+    int mode = buyMode ? 1 : 0;
+    return getEffectiveLotPriceForMode(mode);
+}
+
+/**
+ * Effective lot price for the given mode.
+ * If legacy override price is set (>0), it wins. Otherwise the lot price is the sum of per-template-slot prices.
+ */
+public double getEffectiveLotPriceForMode(int mode) {
+    double override = (mode == 1) ? priceBuyPerLot : priceSellPerLot;
+    if (override > 0.0) return MoneyUtils.round2(override);
+    double sum = 0.0;
+    for (int i = 0; i < TEMPLATE_SLOTS; i++) {
+        if (template.getStackInSlot(i).isEmpty()) continue;
+        sum += getSlotPriceForMode(mode, i);
+    }
+    return MoneyUtils.round2(sum);
 }
 
 public int getActiveModeInt() {
@@ -128,9 +173,139 @@ public void setPriceForMode(int mode, double price) {
     if (mode == 1) setPriceBuyPerLot(price);
     else setPricePerLot(price);
 }
+    // ===== per-slot prices (for single-slot trades) =====
+    /**
+     * Backward-compat API. Previously the shop had a single "price per slot".
+     * We keep these methods but they now act as a DEFAULT that is used only when per-slot
+     * prices are not present in NBT (migration) or when a specific slot price is still 0.
+     */
+    public double getPricePerSlot() {
+        return legacyPriceSellPerSlot;
+    }
 
+    public void setPricePerSlot(double priceSellPerSlot) {
+        double base = Math.max(0.0, MoneyUtils.round2(priceSellPerSlot));
 
+        // If min prices are configured, a single legacy "price per slot" must not be lower
+        // than the highest min among template stacks (otherwise some slots would violate mins).
+        double maxMin = 0.0;
+        for (int i = 0; i < TEMPLATE_SLOTS; i++) {
+            if (template.getStackInSlot(i).isEmpty()) continue;
+            double min = MinPriceManager.getMinForStack(template.getStackInSlot(i));
+            if (min > maxMin) maxMin = min;
+        }
+        if (maxMin > 0.0 && base > 0.0 && base < maxMin) base = MoneyUtils.round2(maxMin);
 
+        this.legacyPriceSellPerSlot = base;
+
+        // Apply to all non-empty template slots when user edits legacy value.
+        for (int i = 0; i < TEMPLATE_SLOTS; i++) {
+            if (template.getStackInSlot(i).isEmpty()) {
+                priceSellPerTemplateSlot[i] = 0.0;
+            } else {
+                double v = base;
+                double min = MinPriceManager.getMinForStack(template.getStackInSlot(i));
+                if (min > 0.0 && v > 0.0 && v < min) v = MoneyUtils.round2(min);
+                priceSellPerTemplateSlot[i] = v;
+            }
+        }
+        setChanged();
+        syncToClient();
+    }
+
+    public double getPriceBuyPerSlot() {
+        return legacyPriceBuyPerSlot;
+    }
+
+    public void setPriceBuyPerSlot(double priceBuyPerSlot) {
+        double base = Math.max(0.0, MoneyUtils.round2(priceBuyPerSlot));
+
+        double maxMin = 0.0;
+        for (int i = 0; i < TEMPLATE_SLOTS; i++) {
+            if (template.getStackInSlot(i).isEmpty()) continue;
+            double min = MinPriceManager.getMinForStack(template.getStackInSlot(i));
+            if (min > maxMin) maxMin = min;
+        }
+        if (maxMin > 0.0 && base > 0.0 && base < maxMin) base = MoneyUtils.round2(maxMin);
+
+        this.legacyPriceBuyPerSlot = base;
+
+        for (int i = 0; i < TEMPLATE_SLOTS; i++) {
+            if (template.getStackInSlot(i).isEmpty()) {
+                priceBuyPerTemplateSlot[i] = 0.0;
+            } else {
+                double v = base;
+                double min = MinPriceManager.getMinForStack(template.getStackInSlot(i));
+                if (min > 0.0 && v > 0.0 && v < min) v = MoneyUtils.round2(min);
+                priceBuyPerTemplateSlot[i] = v;
+            }
+        }
+        setChanged();
+        syncToClient();
+    }
+
+    public double getActivePricePerSlot() {
+        return buyMode ? legacyPriceBuyPerSlot : legacyPriceSellPerSlot;
+    }
+
+    public void setSlotPriceForMode(int mode, double price) {
+        if (mode == 1) setPriceBuyPerSlot(price);
+        else setPricePerSlot(price);
+    }
+
+    // ===== new per-template-slot price API =====
+    public double getSlotPriceForMode(int mode, int templateSlot) {
+        if (templateSlot < 0 || templateSlot >= TEMPLATE_SLOTS) return 0.0;
+        if (template.getStackInSlot(templateSlot).isEmpty()) return 0.0;
+        double v = mode == 1 ? priceBuyPerTemplateSlot[templateSlot] : priceSellPerTemplateSlot[templateSlot];
+        if (v <= 0.0) {
+            // fallback to legacy for old data
+            v = mode == 1 ? legacyPriceBuyPerSlot : legacyPriceSellPerSlot;
+        }
+        return MoneyUtils.round2(Math.max(0.0, v));
+    }
+
+    public void setSlotPriceForMode(int mode, int templateSlot, double price) {
+        if (templateSlot < 0 || templateSlot >= TEMPLATE_SLOTS) return;
+        double v = MoneyUtils.round2(Math.max(0.0, price));
+        // Apply min price floor per item (as configured)
+        double min = MinPriceManager.getMinForStack(template.getStackInSlot(templateSlot));
+        if (min > 0.0 && v > 0.0 && v < min) v = min;
+
+        if (mode == 1) priceBuyPerTemplateSlot[templateSlot] = v;
+        else priceSellPerTemplateSlot[templateSlot] = v;
+
+        setChanged();
+        syncToClient();
+    }
+
+    /**
+     * Enforces minimum price floors for BOTH lot and slot prices.
+     * Called when template changes and from config UI.
+     */
+    public void enforceMinPriceFloors() {
+        try {
+            double minLot = MinPriceManager.getMinForTemplate(template);
+            if (priceSellPerLot > 0.0 && priceSellPerLot < minLot) priceSellPerLot = MoneyUtils.round2(minLot);
+            if (priceBuyPerLot > 0.0 && priceBuyPerLot < minLot) priceBuyPerLot = MoneyUtils.round2(minLot);
+
+            // Each template slot price has its own min price (per item)
+            for (int i = 0; i < TEMPLATE_SLOTS; i++) {
+                if (template.getStackInSlot(i).isEmpty()) {
+                    priceSellPerTemplateSlot[i] = 0.0;
+                    priceBuyPerTemplateSlot[i] = 0.0;
+                    continue;
+                }
+                double min = MinPriceManager.getMinForStack(template.getStackInSlot(i));
+                if (min <= 0.0) continue;
+                if (priceSellPerTemplateSlot[i] > 0.0 && priceSellPerTemplateSlot[i] < min) priceSellPerTemplateSlot[i] = MoneyUtils.round2(min);
+                if (priceBuyPerTemplateSlot[i] > 0.0 && priceBuyPerTemplateSlot[i] < min) priceBuyPerTemplateSlot[i] = MoneyUtils.round2(min);
+            }
+        } catch (Exception ignored) {
+        }
+        setChanged();
+        syncToClient();
+    }
     public void setOwnerName(@Nullable String ownerName) {
         this.ownerName = (ownerName == null || ownerName.isBlank()) ? null : ownerName;
         setChanged();
@@ -223,7 +398,7 @@ public void setPriceForMode(int mode, double price) {
             cachedAvailBuyLots = 0;
             return;
         }
-        double price = priceBuyPerLot;
+        double price = getEffectiveLotPriceForMode(1);
         if (price <= 0.0) {
             cachedAvailBuyLots = 0;
             return;
@@ -283,7 +458,7 @@ public void setPriceForMode(int mode, double price) {
         if (available <= 0) return false;
         if (lots > available) return false;
 
-        double usedPricePerLot = buyMode ? priceBuyPerLot : priceSellPerLot;
+        double usedPricePerLot = getEffectiveLotPriceForMode(0);
         double totalPrice = MoneyUtils.round2(usedPricePerLot * (double) lots);
 
         if (owner == null) return false;
@@ -373,6 +548,262 @@ public void setPriceForMode(int mode, double price) {
         setChanged();
         return true;
     }
+
+/**
+ * Slot-mode (SELL-mode): player buys only one template slot, repeated 'units' times.
+ * Each unit gives templateStack.getCount() items of that slot.
+ */
+public boolean tryBuySlot(ServerPlayer buyer, int templateSlot, int units) {
+    if (buyMode) {
+        if (buyer != null) NetworkRegistration.sendShopToast(buyer, net.minecraft.network.chat.Component.literal("Магазин сейчас в режиме скупки."), false);
+        return false;
+    }
+    if (units <= 0) return false;
+    if (templateSlot < 0 || templateSlot >= template.getSlots()) return false;
+
+    var req = template.getStackInSlot(templateSlot);
+    if (req == null || req.isEmpty()) return false;
+
+    if (owner == null) return false;
+    if (owner.equals(buyer.getUUID())) {
+        NetworkRegistration.sendShopToast(buyer, net.minecraft.network.chat.Component.literal("Нельзя покупать у самого себя."), false);
+        return false;
+    }
+
+    double pricePerUnit = getSlotPriceForMode(0, templateSlot);
+    if (pricePerUnit <= 0.0) {
+        NetworkRegistration.sendShopToast(buyer, net.minecraft.network.chat.Component.literal("Цена слота не установлена."), false);
+        return false;
+    }
+
+    // Compute max units by stock availability for this slot
+    int needPerUnit = Math.max(1, req.getCount());
+    int availableCount = countMatching(req);
+    int maxUnitsByStock = availableCount / needPerUnit;
+    if (maxUnitsByStock <= 0) return false;
+
+    int want = units;
+    if (want == Integer.MAX_VALUE) want = maxUnitsByStock;
+    if (want > maxUnitsByStock) want = maxUnitsByStock;
+    if (want <= 0) return false;
+
+    double totalPrice = MoneyUtils.round2(pricePerUnit * (double) want);
+    double balance = EconomyData.getBalance(buyer.getUUID());
+    if (balance + 1e-9 < totalPrice) {
+        NetworkRegistration.sendShopToast(buyer, net.minecraft.network.chat.Component.translatable("msg.avilixeconomy.shop.no_money"), false);
+        return false;
+    }
+
+    // Extract items
+    int amount = needPerUnit * want;
+    var toGive = extractMatching(req, amount);
+    if (toGive.isEmpty() || toGive.getCount() != amount) {
+        if (!toGive.isEmpty()) insertToStock(toGive);
+        return false;
+    }
+
+    // Pay (with commission)
+    UUID serverUuid;
+    try {
+        serverUuid = UUID.fromString(AvilixEconomyCommonConfig.ECONOMY.serverAccountUuid.get());
+    } catch (Exception e) {
+        serverUuid = new UUID(0L, 0L);
+    }
+    int commBps = getSellCommissionBps();
+    double fee = CommissionManager.computeFee(totalPrice, commBps);
+    double ownerNet = Math.max(0.0, MoneyUtils.round2(totalPrice - fee));
+    if (!EconomyData.paySplit(buyer.getUUID(), owner, ownerNet, serverUuid, fee)) {
+        insertToStock(toGive);
+        return false;
+    }
+
+    net.neoforged.neoforge.items.ItemHandlerHelper.giveItemToPlayer(buyer, toGive);
+
+    // DB log (optional): we can reuse buildItemsJson for one-stack
+    if (level != null && owner != null) {
+        final UUID ownerUuid = owner;
+        final UUID buyerUuid = buyer.getUUID();
+        final String ownerNameFinal = resolveOwnerName(level, ownerUuid);
+        final String buyerNameFinal = buyer.getGameProfile().getName();
+        final String worldId = level.dimension().location().toString();
+        final int sx = worldPosition.getX();
+        final int sy = worldPosition.getY();
+        final int sz = worldPosition.getZ();
+        final String blockIdFinal = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(getBlockState().getBlock()).toString();
+        final String itemsJson = buildItemsJson(new net.minecraft.world.item.ItemStack[]{toGive}, want);
+        final double pricePerUnitFinal = pricePerUnit;
+        final int unitsFinal = want;
+        final double totalPriceFinal = totalPrice;
+
+        CompletableFuture.runAsync(() -> DatabaseManager.logShopSaleNow(
+                worldId, sx, sy, sz, blockIdFinal,
+                ownerUuid, ownerNameFinal,
+                buyerUuid, buyerNameFinal,
+                "SELL_SLOT",
+                pricePerUnitFinal, unitsFinal, totalPriceFinal, itemsJson
+        ));
+    }
+
+    setChanged();
+    return true;
+}
+
+/**
+ * Slot-mode (BUY-mode): player sells only one template slot, repeated 'units' times.
+ */
+public boolean trySellSlotToShop(ServerPlayer seller, int templateSlot, int units) {
+    if (units <= 0) return false;
+    if (!buyMode) {
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.literal("Магазин сейчас в режиме продажи."), false);
+        return false;
+    }
+    if (templateSlot < 0 || templateSlot >= template.getSlots()) return false;
+
+    var req = template.getStackInSlot(templateSlot);
+    if (req == null || req.isEmpty()) return false;
+
+    if (owner == null) {
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.literal("У магазина нет владельца."), false);
+        return false;
+    }
+    if (owner.equals(seller.getUUID())) {
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.translatable("msg.avilixeconomy.shop.self_trade"), false);
+        return false;
+    }
+
+    double pricePerUnit = getSlotPriceForMode(1, templateSlot);
+    if (pricePerUnit <= 0.0) {
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.literal("Цена слота не установлена."), false);
+        return false;
+    }
+
+    int needPerUnit = Math.max(1, req.getCount());
+    int want = units;
+
+    // clamp by seller inventory
+    int sellerCount = countInPlayer(seller, req);
+    int maxUnitsByInv = sellerCount / needPerUnit;
+    if (maxUnitsByInv <= 0) {
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.literal("У вас нет нужных предметов."), false);
+        return false;
+    }
+
+    // clamp by stock space (for the exact items being inserted)
+    // conservative: check that stock can accept amount
+    int maxUnitsBySpace = getAvailableUnitsBySpace(req);
+    int maxUnits = Math.min(maxUnitsByInv, maxUnitsBySpace);
+    if (maxUnits <= 0) {
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.literal("Недостаточно места на складе."), false);
+        return false;
+    }
+
+    if (want == Integer.MAX_VALUE) want = maxUnits;
+    if (want > maxUnits) want = maxUnits;
+    if (want <= 0) return false;
+
+    double totalPrice = MoneyUtils.round2(pricePerUnit * (double) want);
+
+    double ownerBal = EconomyData.isCached(owner) ? EconomyData.getCachedBalance(owner) : EconomyData.getBalance(owner);
+    int maxUnitsByMoney = (pricePerUnit <= 0.0) ? 0 : (int) Math.floor(ownerBal / pricePerUnit);
+    if (want > maxUnitsByMoney) want = maxUnitsByMoney;
+    if (want <= 0) {
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.literal("У владельца недостаточно средств."), false);
+        return false;
+    }
+    totalPrice = MoneyUtils.round2(pricePerUnit * (double) want);
+
+    // Remove items from seller
+    int amount = needPerUnit * want;
+    if (!removeExactFromPlayer(seller, req, amount)) {
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.literal("Не удалось забрать предметы из инвентаря."), false);
+        return false;
+    }
+
+    // Insert into stock
+    var toInsert = req.copy();
+    toInsert.setCount(amount);
+    insertToStock(toInsert);
+
+    // Pay seller (with commission)
+    UUID serverUuid;
+    try {
+        serverUuid = UUID.fromString(AvilixEconomyCommonConfig.ECONOMY.serverAccountUuid.get());
+    } catch (Exception e) {
+        serverUuid = new UUID(0L, 0L);
+    }
+    int commBps = getBuyCommissionBps();
+    double fee = CommissionManager.computeFee(totalPrice, commBps);
+    double sellerNet = Math.max(0.0, MoneyUtils.round2(totalPrice - fee));
+    boolean paid = EconomyData.paySplit(owner, seller.getUUID(), sellerNet, serverUuid, fee);
+    if (!paid) {
+        // rollback: remove inserted and return
+        extractMatching(req, amount); // best-effort remove (may remove different slots but same item)
+        net.neoforged.neoforge.items.ItemHandlerHelper.giveItemToPlayer(seller, toInsert);
+        NetworkRegistration.sendShopToast(seller, net.minecraft.network.chat.Component.literal("Оплата не прошла. Продажа отменена."), false);
+        return false;
+    }
+
+    NetworkUtils.sendBalanceToPlayer(seller, EconomyData.getBalance(seller.getUUID()));
+
+    setChanged();
+    return true;
+}
+
+private int countMatching(net.minecraft.world.item.ItemStack sample) {
+    int sum = 0;
+    for (int i = 0; i < stock.getSlots(); i++) {
+        var s = stock.getStackInSlot(i);
+        if (s.isEmpty()) continue;
+        if (!net.minecraft.world.item.ItemStack.isSameItemSameComponents(s, sample)) continue;
+        sum += s.getCount();
+    }
+    return sum;
+}
+
+private int countInPlayer(ServerPlayer player, net.minecraft.world.item.ItemStack sample) {
+    int sum = 0;
+    var inv = player.getInventory();
+    for (int i = 0; i < inv.getContainerSize(); i++) {
+        var s = inv.getItem(i);
+        if (s.isEmpty()) continue;
+        if (!net.minecraft.world.item.ItemStack.isSameItemSameComponents(s, sample)) continue;
+        sum += s.getCount();
+    }
+    return sum;
+}
+
+private boolean removeExactFromPlayer(ServerPlayer player, net.minecraft.world.item.ItemStack sample, int amount) {
+    int remaining = amount;
+    var inv = player.getInventory();
+
+    for (int i = 0; i < inv.getContainerSize(); i++) {
+        var s = inv.getItem(i);
+        if (s.isEmpty()) continue;
+        if (!net.minecraft.world.item.ItemStack.isSameItemSameComponents(s, sample)) continue;
+        int take = Math.min(remaining, s.getCount());
+        s.shrink(take);
+        if (s.getCount() <= 0) inv.setItem(i, net.minecraft.world.item.ItemStack.EMPTY);
+        remaining -= take;
+        if (remaining <= 0) break;
+    }
+    inv.setChanged();
+    return remaining <= 0;
+}
+
+private int getAvailableUnitsBySpace(net.minecraft.world.item.ItemStack sample) {
+    // Compute how many more items of this type we can insert, then divide by sample.count
+    int freeItems = 0;
+    for (int i = 0; i < stock.getSlots(); i++) {
+        var s = stock.getStackInSlot(i);
+        if (s.isEmpty()) {
+            freeItems += sample.getMaxStackSize();
+        } else if (net.minecraft.world.item.ItemStack.isSameItemSameComponents(s, sample)) {
+            freeItems += (s.getMaxStackSize() - s.getCount());
+        }
+    }
+    int perUnit = Math.max(1, sample.getCount());
+    return freeItems / perUnit;
+}
 
 /**
  * BUY-mode: player sells items to the shop. Owner pays the seller, items go into stock.
@@ -497,7 +928,7 @@ public boolean trySellToShop(ServerPlayer seller, int lots) {
             net.minecraft.network.chat.Component.translatable(
                     "msg.avilixeconomy.shop.sold",
                     lots,
-                    MoneyUtils.formatSmart(totalPrice)
+                    MoneyUtils.formatNoks(totalPrice)
             ),
             true
     );
@@ -757,6 +1188,13 @@ private int getAvailableLotsBySpace(java.util.List<net.minecraft.world.item.Item
         if (ownerName != null && !ownerName.isBlank()) tag.putString(TAG_OWNER_NAME, ownerName);
         tag.putDouble(TAG_PRICE, MoneyUtils.round2(priceSellPerLot));
         tag.putDouble(TAG_PRICE_BUY, MoneyUtils.round2(priceBuyPerLot));
+        // legacy defaults (kept for older clients/old saves)
+        tag.putDouble(TAG_PRICE_SLOT, MoneyUtils.round2(legacyPriceSellPerSlot));
+        tag.putDouble(TAG_PRICE_BUY_SLOT, MoneyUtils.round2(legacyPriceBuyPerSlot));
+
+        // per-template-slot prices
+        tag.put(TAG_PRICE_SLOTS, writeDoubleList(priceSellPerTemplateSlot));
+        tag.put(TAG_PRICE_BUY_SLOTS, writeDoubleList(priceBuyPerTemplateSlot));
         tag.putBoolean(TAG_MODE, buyMode);
         tag.put(TAG_TEMPLATE, template.serializeNBT(registries));
         tag.put(TAG_STOCK, stock.serializeNBT(registries));
@@ -767,11 +1205,45 @@ private int getAvailableLotsBySpace(java.util.List<net.minecraft.world.item.Item
         super.loadAdditional(tag, registries);
         owner = tag.hasUUID(TAG_OWNER) ? tag.getUUID(TAG_OWNER) : null;
         ownerName = tag.contains(TAG_OWNER_NAME) ? tag.getString(TAG_OWNER_NAME) : null;
+        legacyPriceSellPerSlot = tag.contains(TAG_PRICE_SLOT) ? readMoneyTag(tag, TAG_PRICE_SLOT, 0.0) : 0.0;
+        legacyPriceBuyPerSlot = tag.contains(TAG_PRICE_BUY_SLOT) ? readMoneyTag(tag, TAG_PRICE_BUY_SLOT, legacyPriceSellPerSlot) : legacyPriceSellPerSlot;
         priceSellPerLot = readMoneyTag(tag, TAG_PRICE, 0.0);
         priceBuyPerLot = tag.contains(TAG_PRICE_BUY) ? readMoneyTag(tag, TAG_PRICE_BUY, priceSellPerLot) : priceSellPerLot;
         buyMode = tag.contains(TAG_MODE) && tag.getBoolean(TAG_MODE);
         if (tag.contains(TAG_TEMPLATE)) template.deserializeNBT(registries, tag.getCompound(TAG_TEMPLATE));
         if (tag.contains(TAG_STOCK)) stock.deserializeNBT(registries, tag.getCompound(TAG_STOCK));
+
+        // Load per-template-slot prices (if present). Otherwise migrate from legacy single-slot price.
+        boolean hadSellSlots = readDoubleListInto(tag, TAG_PRICE_SLOTS, priceSellPerTemplateSlot);
+        boolean hadBuySlots = readDoubleListInto(tag, TAG_PRICE_BUY_SLOTS, priceBuyPerTemplateSlot);
+        if (!hadSellSlots) {
+            for (int i = 0; i < TEMPLATE_SLOTS; i++) {
+                priceSellPerTemplateSlot[i] = template.getStackInSlot(i).isEmpty() ? 0.0 : legacyPriceSellPerSlot;
+            }
+        }
+        if (!hadBuySlots) {
+            for (int i = 0; i < TEMPLATE_SLOTS; i++) {
+                priceBuyPerTemplateSlot[i] = template.getStackInSlot(i).isEmpty() ? 0.0 : legacyPriceBuyPerSlot;
+            }
+        }
+    }
+
+    private static net.minecraft.nbt.ListTag writeDoubleList(double[] arr) {
+        net.minecraft.nbt.ListTag list = new net.minecraft.nbt.ListTag();
+        if (arr == null) return list;
+        for (double v : arr) list.add(net.minecraft.nbt.DoubleTag.valueOf(MoneyUtils.round2(v)));
+        return list;
+    }
+
+    private static boolean readDoubleListInto(CompoundTag tag, String key, double[] out) {
+        if (tag == null || key == null || out == null) return false;
+        if (!tag.contains(key, Tag.TAG_LIST)) return false;
+        net.minecraft.nbt.ListTag list = tag.getList(key, Tag.TAG_DOUBLE);
+        if (list.isEmpty()) return false;
+        int n = Math.min(out.length, list.size());
+        for (int i = 0; i < n; i++) out[i] = MoneyUtils.round2(list.getDouble(i));
+        for (int i = n; i < out.length; i++) out[i] = 0.0;
+        return true;
     }
 
     /**

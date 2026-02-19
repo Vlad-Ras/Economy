@@ -1,0 +1,17 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.glossary.name",
+  "icon": "minecraft:name_tag",
+  "category": "index",
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.glossary.t1",
+      "text": "guide.avilixeconomy.shopbook.e.glossary.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.glossary.t2",
+      "text": "guide.avilixeconomy.shopbook.e.glossary.p2"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.buyer_errors.name",
+  "icon": "minecraft:barrier",
+  "category": "buying",
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.buyer_errors.t1",
+      "text": "guide.avilixeconomy.shopbook.e.buyer_errors.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.buyer_errors.t2",
+      "text": "guide.avilixeconomy.shopbook.e.buyer_errors.p2"
+    }
+  ]
+}

@@ -56,6 +56,11 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
 
     private EditBox qtyBox;
     private Button actionButton;
+    private Button tradeModeButton;
+    private boolean tradeBySlot = false;
+
+    /** Selected template slot for slot-mode trades (0..8), -1 = none. */
+    private int selectedTradeSlot = -1;
 
     // Layout (dynamic)
     private int rightW = 220;
@@ -77,6 +82,7 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
 
     /** Hovered ghost item from the lot preview (rendered manually, not as slots). */
     private ItemStack hoveredGhost = ItemStack.EMPTY;
+    private int hoveredGhostSlot = -1;
 
     private int lastGuiW = -1;
     private int lastGuiH = -1;
@@ -123,7 +129,10 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
     protected void init() {
         super.init();
 
-        // Diagnostic stamp: helps confirm runClient is using latest sources.
+        
+        // FTB Library can inject sidebar buttons into any Screen; purge them.
+        stripFtbSidebarWidgets();
+// Diagnostic stamp: helps confirm runClient is using latest sources.
         AvilixEconomy.LOGGER.info(UiKit.GUI_BUILD_STAMP);
 
         // We render in UI space starting at 0,0 and then translate/scale in render().
@@ -142,6 +151,15 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
                 .bounds(0, 0, 120, BTN_H)
                 .build();
         this.addRenderableWidget(this.actionButton);
+
+
+this.tradeModeButton = Button.builder(Component.literal(""), b -> {
+    this.tradeBySlot = !this.tradeBySlot;
+    this.selectedTradeSlot = -1;
+    this.needsRelayout = true;
+    updateActionStateAndText();
+}).bounds(0, 0, 80, BTN_H).build();
+this.addRenderableWidget(this.tradeModeButton);
 
         this.needsRelayout = true;
         updateUiTransform();
@@ -214,6 +232,13 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
         int gap = 4;
         int buttonY = bottom - BTN_H;
         int boxY = buttonY - gap - BOX_H;
+        int modeY = boxY - gap - BTN_H;
+
+        if (this.tradeModeButton != null) {
+            this.tradeModeButton.setX(innerX);
+            this.tradeModeButton.setY(modeY);
+            this.tradeModeButton.setWidth(controlW);
+        }
 
         this.qtyBox.setX(innerX);
         this.qtyBox.setY(boxY);
@@ -236,15 +261,21 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
     }
 
     private void onAction() {
-        int lots = parseLots();
-        if (lots <= 0) return;
+        int units = parseLots();
+        if (units <= 0) return;
+
+        if (this.tradeBySlot) {
+            if (this.selectedTradeSlot < 0 || this.selectedTradeSlot >= 9) return;
+            PacketDistributor.sendToServer(new NetworkRegistration.ShopSlotTradePayload(this.menu.getPos(), this.selectedTradeSlot, units));
+            return;
+        }
 
         if (this.menu.getMode() == 1) {
             // shop is buying, player sells
-            PacketDistributor.sendToServer(new NetworkRegistration.ShopSellPayload(this.menu.getPos(), lots));
+            PacketDistributor.sendToServer(new NetworkRegistration.ShopSellPayload(this.menu.getPos(), units));
         } else {
             // shop is selling, player buys
-            PacketDistributor.sendToServer(new NetworkRegistration.ShopBuyPayload(this.menu.getPos(), lots));
+            PacketDistributor.sendToServer(new NetworkRegistration.ShopBuyPayload(this.menu.getPos(), units));
         }
     }
 
@@ -268,17 +299,35 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
         if (this.actionButton == null) return;
 
         boolean sellingToShop = this.menu.getMode() == 1;
-        this.actionButton.setMessage(sellingToShop
-                ? Component.translatable("screen.avilixeconomy.shop.sell")
-                : Component.translatable("screen.avilixeconomy.shop.buy"));
 
-        int lots = parseLots();
-        int max = this.menu.getAvailableLots();
-        if (sellingToShop) {
-            max = Math.min(max, computePlayerLots());
+        if (this.tradeModeButton != null) {
+            this.tradeModeButton.setMessage(this.tradeBySlot
+                    ? Component.translatable("screen.avilixeconomy.shop.trade_mode_slot")
+                    : Component.translatable("screen.avilixeconomy.shop.trade_mode_lot"));
         }
 
-        this.actionButton.active = lots > 0 && lots <= max;
+        int units = parseLots();
+
+        if (this.tradeBySlot) {
+            // Slot-mode: user selects a template slot, then confirms with the button.
+            // (No "buy max" on click; server-side still clamps by inventory/stock/money.)
+            int maxUnits = computeMaxUnitsForSelectedSlot();
+            this.actionButton.setMessage(sellingToShop
+                    ? Component.translatable("screen.avilixeconomy.shop.sell_slot")
+                    : Component.translatable("screen.avilixeconomy.shop.buy_slot"));
+            this.actionButton.active = this.selectedTradeSlot >= 0
+                    && units > 0
+                    && (maxUnits <= 0 || units <= maxUnits);
+        } else {
+            int max = this.menu.getAvailableLots();
+            if (sellingToShop) {
+                max = Math.min(max, computePlayerLots());
+            }
+            this.actionButton.setMessage(sellingToShop
+                    ? Component.translatable("screen.avilixeconomy.shop.sell")
+                    : Component.translatable("screen.avilixeconomy.shop.buy"));
+            this.actionButton.active = units > 0 && units <= max;
+        }
     }
 
     private int computePlayerLots() {
@@ -338,9 +387,61 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
         return Math.max(0, lots);
     }
 
+    /**
+     * Slot-mode max units (how many times we can trade the selected template slot).
+     * Client-side estimate based on synced shop stock and local player inventory.
+     * Server still clamps precisely (stock space, owner money, etc.).
+     */
+    private int computeMaxUnitsForSelectedSlot() {
+        if (this.selectedTradeSlot < 0) return 0;
+        var shop = this.menu.getShop();
+        if (shop == null) return 0;
+        if (this.selectedTradeSlot >= 9) return 0;
+
+        var req = shop.getTemplate().getStackInSlot(this.selectedTradeSlot);
+        if (req == null || req.isEmpty()) return 0;
+        int need = Math.max(1, req.getCount());
+
+        int mode = this.menu.getMode(); // 0=SELL (shop sells), 1=BUY (shop buys)
+        if (mode == 0) {
+            // Shop sells to player: limited by stock count.
+            int have = 0;
+            var sample = req.copy();
+            sample.setCount(1);
+            for (int i = 0; i < shop.getStock().getSlots(); i++) {
+                var s = shop.getStock().getStackInSlot(i);
+                if (s.isEmpty()) continue;
+                if (ItemStack.isSameItemSameComponents(s, sample)) {
+                    have += s.getCount();
+                }
+            }
+            return Math.max(0, have / need);
+        }
+
+        // Shop buys from player: limited by player inventory count.
+        if (this.minecraft == null || this.minecraft.player == null) return 0;
+        Inventory inv = this.minecraft.player.getInventory();
+        int have = 0;
+        var sample = req.copy();
+        sample.setCount(1);
+        for (ItemStack s : inv.items) {
+            if (!s.isEmpty() && ItemStack.isSameItemSameComponents(s, sample)) have += s.getCount();
+        }
+        for (ItemStack s : inv.armor) {
+            if (!s.isEmpty() && ItemStack.isSameItemSameComponents(s, sample)) have += s.getCount();
+        }
+        for (ItemStack s : inv.offhand) {
+            if (!s.isEmpty() && ItemStack.isSameItemSameComponents(s, sample)) have += s.getCount();
+        }
+        return Math.max(0, have / need);
+    }
+
     @Override
     public void render(GuiGraphics gfx, int mouseX, int mouseY, float partialTick) {
-        updateUiTransform();
+        
+        // Remove FTB sidebar widgets injected into this Screen.
+        stripFtbSidebarWidgets();
+updateUiTransform();
 
 
         int uiMouseX = (int) ((mouseX - this.uiLeft) / this.uiScale);
@@ -369,9 +470,44 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
 
         super.renderTooltip(gfx, mouseX, mouseY);
 
-        // Manual tooltip for the ghost lot preview.
+        // Manual tooltip for the ghost lot preview (+ show per-slot price).
         if (!this.hoveredGhost.isEmpty()) {
-            gfx.renderTooltip(this.font, this.hoveredGhost, mouseX, mouseY);
+            java.util.List<Component> lines = new java.util.ArrayList<>();
+            // base item tooltip
+            lines.add(this.hoveredGhost.getHoverName());
+
+            // price line
+            int slot = this.hoveredGhostSlot;
+            double price = 0.0;
+            double minTotal = 0.0;
+            double minPerItem = 0.0;
+            int count = 1;
+            var shop = this.menu.getShop();
+            if (shop != null && slot >= 0 && slot < 9) {
+                int mode = this.menu.getMode(); // 0=SELL (shop sells), 1=BUY (shop buys)
+                price = shop.getSlotPriceForMode(mode, slot);
+                var stack = shop.getTemplate().getStackInSlot(slot);
+                count = Math.max(1, stack.getCount());
+                minTotal = com.roften.avilixeconomy.pricing.MinPriceManager.getMinForStack(stack);
+                var id = stack.isEmpty() ? null : stack.getItem().builtInRegistryHolder().key().location();
+                minPerItem = com.roften.avilixeconomy.pricing.MinPriceManager.getMinPerItem(id);
+            }
+
+            if (price > 0.0) {
+                String perItem = MoneyUtils.formatNoks(MoneyUtils.round2(price / Math.max(1, count)));
+                lines.add(Component.literal("Цена слота: " + MoneyUtils.formatNoks(price) + " (" + perItem + " / 1шт)")
+                        .withStyle(net.minecraft.ChatFormatting.AQUA));
+            } else {
+                lines.add(Component.literal("Цена слота: не задана").withStyle(net.minecraft.ChatFormatting.RED));
+            }
+
+            if (minTotal > 0.0) {
+                String perItemMin = minPerItem > 0.0 ? (MoneyUtils.formatNoks(minPerItem) + " / 1шт") : "";
+                lines.add(Component.literal("Мин. цена: " + MoneyUtils.formatNoks(minTotal) + (perItemMin.isEmpty() ? "" : " (" + perItemMin + ")"))
+                        .withStyle(net.minecraft.ChatFormatting.DARK_GRAY));
+            }
+
+            gfx.renderTooltip(this.font, lines, java.util.Optional.empty(), mouseX, mouseY);
         }
     }
 
@@ -424,10 +560,43 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        updateUiTransform();
-        return super.mouseClicked((mouseX - this.uiLeft) / this.uiScale, (mouseY - this.uiTop) / this.uiScale, button);
+public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    updateUiTransform();
+
+    // Convert to UI-space coordinates (our widgets are placed in UI-space)
+    double ux = (mouseX - this.uiLeft) / this.uiScale;
+    double uy = (mouseY - this.uiTop) / this.uiScale;
+
+    // Slot-mode: clicking on a template slot (3x3) SELECTS it (with highlight).
+    // Actual trade happens only after explicit confirmation via the action button.
+    if (this.tradeBySlot && button == 0) {
+        int templateX = ShopBuyMenu.TEMPLATE_X;
+        int templateY = ShopBuyMenu.TEMPLATE_Y;
+
+        int relX = (int) Math.floor(ux) - templateX;
+        int relY = (int) Math.floor(uy) - templateY;
+
+        if (relX >= 0 && relY >= 0 && relX < 54 && relY < 54) {
+            int col = relX / 18;
+            int row = relY / 18;
+            int slot = row * 3 + col;
+            if (slot >= 0 && slot < 9) {
+                var shop = this.menu.getShop();
+                if (shop != null) {
+                    var req = shop.getTemplate().getStackInSlot(slot);
+                    if (req != null && !req.isEmpty()) {
+                        this.selectedTradeSlot = slot;
+                        updateActionStateAndText();
+                        return true;
+                    }
+                }
+            }
+        }
     }
+
+    return super.mouseClicked(ux, uy, button);
+}
+
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
@@ -480,6 +649,7 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
 
         // Reset hovered ghost each frame.
         this.hoveredGhost = ItemStack.EMPTY;
+        this.hoveredGhostSlot = -1;
 
         ShopUi.drawDropShadow(gfx, x, y, this.imageWidth, this.imageHeight);
         ShopUi.drawWindowFrame(gfx, x, y, this.imageWidth, this.imageHeight);
@@ -545,7 +715,22 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
             int hy = y + templateY + r * 18;
             if (mouseX >= hx && mouseX < hx + 18 && mouseY >= hy && mouseY < hy + 18) {
                 this.hoveredGhost = stack;
+                this.hoveredGhostSlot = i;
             }
+        }
+
+        // Slot-mode: highlight selected slot in the 3x3 template.
+        if (this.tradeBySlot && this.selectedTradeSlot >= 0 && this.selectedTradeSlot < 9) {
+            int c = this.selectedTradeSlot % 3;
+            int r = this.selectedTradeSlot / 3;
+            int hx = x + templateX + c * 18;
+            int hy = y + templateY + r * 18;
+            int col = 0xA0FFFF00; // translucent yellow
+            // border 1px
+            gfx.fill(hx, hy, hx + 18, hy + 1, col);
+            gfx.fill(hx, hy + 17, hx + 18, hy + 18, col);
+            gfx.fill(hx, hy, hx + 1, hy + 18, col);
+            gfx.fill(hx + 17, hy, hx + 18, hy + 18, col);
         }
 
         // Player inventory
@@ -566,31 +751,58 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
         gfx.drawString(this.font, mode, textX, textY, 0xCFCFCF, false);
         textY += 14;
 
-        gfx.drawString(this.font,
-                Component.translatable("screen.avilixeconomy.shop.price_value", MoneyUtils.formatSmart(this.menu.getPricePerLot())),
-                textX, textY, 0xCFCFCF, false);
-        textY += 12;
+        // In slot-mode we show price/availability for the selected template slot.
+        var shop = this.menu.getShop();
+        boolean slotReady = this.tradeBySlot && this.selectedTradeSlot >= 0 && this.selectedTradeSlot < 9
+                && shop != null && !shop.getTemplate().getStackInSlot(this.selectedTradeSlot).isEmpty();
 
-        int avail = this.menu.getAvailableLots();
+        double unitPrice = slotReady
+                ? shop.getSlotPriceForMode(this.menu.getMode(), this.selectedTradeSlot)
+                : this.menu.getPricePerLot();
+
+        int avail = this.tradeBySlot ? computeMaxUnitsForSelectedSlot() : this.menu.getAvailableLots();
+
+        // Show PER-ITEM price in slot-mode (user expectation: when switching slots, price / 1 item must update).
+        if (this.tradeBySlot && slotReady) {
+            int reqCount = Math.max(1, shop.getTemplate().getStackInSlot(this.selectedTradeSlot).getCount());
+            double perItem = MoneyUtils.round2(unitPrice / (double) reqCount);
+
+            gfx.drawString(this.font,
+                    Component.translatable("screen.avilixeconomy.shop.price_per_item_value", MoneyUtils.formatNoks(perItem)),
+                    textX, textY, 0xCFCFCF, false);
+            textY += 12;
+
+            gfx.drawString(this.font,
+                    Component.translatable("screen.avilixeconomy.shop.price_slot_value", MoneyUtils.formatNoks(unitPrice), Integer.toString(reqCount)),
+                    textX, textY, 0x9A9A9A, false);
+            textY += 12;
+        } else {
+            gfx.drawString(this.font,
+                    Component.translatable("screen.avilixeconomy.shop.price_value", MoneyUtils.formatNoks(unitPrice)),
+                    textX, textY, 0xCFCFCF, false);
+            textY += 12;
+        }
+
         gfx.drawString(this.font,
                 Component.translatable("screen.avilixeconomy.shop.available_value", Integer.toString(avail)),
                 textX, textY, 0xCFCFCF, false);
         textY += 12;
 
-        int max = avail;
-        if (sellingToShop) {
+        // In lot-mode (and only there) show player's lot count when selling to shop.
+        if (sellingToShop && !this.tradeBySlot) {
             int yourLots = computePlayerLots();
-            max = Math.min(avail, yourLots);
             gfx.drawString(this.font,
                     Component.translatable("screen.avilixeconomy.shop.your_lots_value", Integer.toString(yourLots)),
                     textX, textY, 0xCFCFCF, false);
             textY += 12;
         }
 
-        int lots = parseLots();
-        double total = MoneyUtils.round2((double) lots * this.menu.getPricePerLot());
+        int units = parseLots();
+        double total = (slotReady || !this.tradeBySlot)
+                ? MoneyUtils.round2((double) units * unitPrice)
+                : 0.0;
         gfx.drawString(this.font,
-                Component.translatable("screen.avilixeconomy.shop.total_value", MoneyUtils.formatSmart(total)),
+                Component.translatable("screen.avilixeconomy.shop.total_value", MoneyUtils.formatNoks(total)),
                 textX, textY, 0x80FF80, false);
         textY += 12;
 
@@ -607,8 +819,8 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
             textY += 12;
 
             Component netLine = sellingToShop
-                    ? Component.translatable("screen.avilixeconomy.shop.net_you_value", MoneyUtils.formatSmart(net))
-                    : Component.translatable("screen.avilixeconomy.shop.net_seller_value", MoneyUtils.formatSmart(net));
+                    ? Component.translatable("screen.avilixeconomy.shop.net_you_value", MoneyUtils.formatNoks(net))
+                    : Component.translatable("screen.avilixeconomy.shop.net_seller_value", MoneyUtils.formatNoks(net));
             gfx.drawString(this.font, netLine, textX, textY, 0xCFCFCF, false);
             textY += 12;
         }
@@ -623,7 +835,7 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
         // This prevents the classic overlap where the MAX line collides with the last info line
         // (e.g. "У вас лотов") when the screen gets tight.
         Component qtyLabel = Component.translatable("screen.avilixeconomy.shop.qty");
-        Component maxLine = Component.translatable("screen.avilixeconomy.shop.max_value", Integer.toString(max));
+        Component maxLine = Component.translatable("screen.avilixeconomy.shop.max_value", Integer.toString(avail));
 
         gfx.drawString(this.font, qtyLabel, textX, qtyLabelY, 0xFFFFFF, false);
 
@@ -645,4 +857,25 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
     protected void renderLabels(GuiGraphics gfx, int mouseX, int mouseY) {
         // All labels are drawn in renderBg().
     }
+
+    // --- FTB Library / Quests sidebar suppression ---
+    private void stripFtbSidebarWidgets() {
+        try {
+            this.children().removeIf(ShopBuyScreen::isFtbSidebarObject);
+        } catch (Throwable ignored) {}
+        try {
+            this.renderables.removeIf(ShopBuyScreen::isFtbSidebarObject);
+        } catch (Throwable ignored) {}
+    }
+
+    private static boolean isFtbSidebarObject(Object o) {
+        if (o == null) return false;
+        String n = o.getClass().getName();
+        String l = n.toLowerCase(java.util.Locale.ROOT);
+        return n.startsWith("dev.ftb.")
+                || n.startsWith("com.feed_the_beast.")
+                || l.contains("ftblibrary")
+                || l.contains("ftbquests");
+    }
+
 }

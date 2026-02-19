@@ -1,0 +1,17 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.buyer_quick.name",
+  "icon": "minecraft:emerald",
+  "category": "quickstart",
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.buyer_quick.t1",
+      "text": "guide.avilixeconomy.shopbook.e.buyer_quick.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.buyer_quick.t2",
+      "text": "guide.avilixeconomy.shopbook.e.buyer_quick.p2"
+    }
+  ]
+}

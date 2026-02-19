@@ -1,0 +1,19 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.links.name",
+  "category": "avilixeconomy:shop_guide/tips",
+  "icon": "minecraft:compass",
+  "sortnum": 2,
+  "pages": [
+    {
+      "type": "patchouli:relations",
+      "entries": [
+        "avilixeconomy:shop_guide/getting_started/intro",
+        "avilixeconomy:shop_guide/pricing/pricing_basics",
+        "avilixeconomy:shop_guide/pricing/minprice",
+        "avilixeconomy:shop_guide/tips/troubleshoot"
+      ],
+      "title": "guide.avilixeconomy.shopbook.e.links.t",
+      "text": "guide.avilixeconomy.shopbook.e.links.p1"
+    }
+  ]
+}

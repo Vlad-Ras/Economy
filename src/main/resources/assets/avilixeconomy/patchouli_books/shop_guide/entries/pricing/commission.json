@@ -1,0 +1,17 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.commission.name",
+  "icon": "minecraft:gold_ingot",
+  "category": "pricing",
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.commission.t1",
+      "text": "guide.avilixeconomy.shopbook.e.commission.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.commission.t2",
+      "text": "guide.avilixeconomy.shopbook.e.commission.p2"
+    }
+  ]
+}

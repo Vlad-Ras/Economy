@@ -1,0 +1,23 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.intro.name",
+  "category": "avilixeconomy:shop_guide/getting_started",
+  "icon": "avilixeconomy:shop",
+  "sortnum": 0,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.intro.t",
+      "text": "guide.avilixeconomy.shopbook.e.intro.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.intro.t2",
+      "text": "guide.avilixeconomy.shopbook.e.intro.p2"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.intro.t3",
+      "text": "guide.avilixeconomy.shopbook.e.intro.p3"
+    }
+  ]
+}

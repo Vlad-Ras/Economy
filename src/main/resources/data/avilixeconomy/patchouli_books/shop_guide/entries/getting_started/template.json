@@ -1,0 +1,28 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.template.name",
+  "category": "avilixeconomy:shop_guide/getting_started",
+  "icon": "minecraft:chest",
+  "sortnum": 3,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.template.t",
+      "text": "guide.avilixeconomy.shopbook.e.template.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.template.t2",
+      "text": "guide.avilixeconomy.shopbook.e.template.p2"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.template.t3",
+      "text": "guide.avilixeconomy.shopbook.e.template.p3"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.template.t4",
+      "text": "guide.avilixeconomy.shopbook.e.template.p4"
+    }
+  ]
+}

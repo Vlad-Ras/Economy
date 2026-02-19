@@ -22,6 +22,8 @@ import net.minecraft.world.item.FishingRodItem;
 import net.minecraft.world.item.ShearsItem;
 import net.minecraft.world.item.SwordItem;
 import net.minecraft.world.item.TridentItem;
+
+import com.roften.avilixeconomy.shop.render.RenderTransform;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -119,21 +121,32 @@ public class ShopBlockEntityRenderer implements BlockEntityRenderer<ShopBlockEnt
             float x = xCols[col];
             FitParams fp = computeFitParams(stack, baseScaleNormal, baseScaleBlock, baseScaleCustom);
 
+            ShopItemRenderType detectedType = ShopItemRenderType.detect(stack);
+            var resolved = ShopRenderOverridesClient.resolve(stack, detectedType);
+            RenderTransform ot = (resolved != null && resolved.transform() != null) ? resolved.transform() : RenderTransform.IDENTITY;
+
             // extraLift compensates for models that extend below their origin (common for tools).
-            float y = yRows[row] + lift + fp.extraLift();
-            float z = zRows[row];
+            float y = yRows[row] + lift + fp.extraLift() + ot.extraLift() + ot.offY();
+            float z = zRows[row] + ot.offZ();
+            x = x + ot.offX();
 
             pose.translate(x, y, z);
+
+            // Apply extra rotation overrides.
+            if (ot.rotX() != 0) pose.mulPose(Axis.XP.rotationDegrees(ot.rotX()));
+            if (ot.rotY() != 0) pose.mulPose(Axis.YP.rotationDegrees(ot.rotY()));
+            if (ot.rotZ() != 0) pose.mulPose(Axis.ZP.rotationDegrees(ot.rotZ()));
 
             // Create wrench and similar tools can become nearly invisible when rendered fully flat.
             // We cancel the default GROUND "lay flat" rotation by pre-rotating 90 degrees,
             // which makes them stand upright and be visible.
-            if (isCreateWrench(stack)) {
+            if (resolved != null && resolved.source() == ShopRenderOverridesClient.ActiveSource.DEFAULT && isCreateWrench(stack)) {
                 pose.translate(0.0f, 0.010f, 0.0f);
                 pose.mulPose(Axis.XP.rotationDegrees(90.0f));
             }
 
-            pose.scale(fp.scale(), fp.scale(), fp.scale());
+            float s = fp.scale() * (ot.scaleMul() <= 0 ? 1.0f : ot.scaleMul());
+            pose.scale(s, s, s);
 
             mc.getItemRenderer().renderStatic(
                     stack,

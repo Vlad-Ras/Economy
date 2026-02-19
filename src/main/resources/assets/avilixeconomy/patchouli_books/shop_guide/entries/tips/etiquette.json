@@ -1,0 +1,17 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.etiquette.name",
+  "icon": "minecraft:feather",
+  "category": "tips",
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.etiquette.t1",
+      "text": "guide.avilixeconomy.shopbook.e.etiquette.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.etiquette.t2",
+      "text": "guide.avilixeconomy.shopbook.e.etiquette.p2"
+    }
+  ]
+}

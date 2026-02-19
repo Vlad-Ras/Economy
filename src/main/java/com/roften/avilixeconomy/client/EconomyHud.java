@@ -18,12 +18,15 @@ public class EconomyHud {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
 
+        // F1 (Hide GUI) должен скрывать и наш HUD.
+        if (mc.options.hideGui) return;
+
         double bal = ClientBalanceData.getBalance();
 
         GuiGraphics g = event.getGuiGraphics();
         Font font = mc.font;
 
-        String text = "Баланс: " + MoneyUtils.formatSmart(bal);
+        String text = "Баланс: " + MoneyUtils.formatNoks(bal);
 
         int x = HudPositionConfig.getX();
         int y = HudPositionConfig.getY();

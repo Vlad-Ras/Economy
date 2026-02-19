@@ -1,0 +1,22 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.buy_flow.name",
+  "icon": "minecraft:emerald",
+  "category": "avilixeconomy:buying",
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.buy_flow.t1",
+      "text": "guide.avilixeconomy.shopbook.e.buy_flow.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.buy_flow.t2",
+      "text": "guide.avilixeconomy.shopbook.e.buy_flow.p2"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.buy_flow.t3",
+      "text": "guide.avilixeconomy.shopbook.e.buy_flow.p3"
+    }
+  ]
+}

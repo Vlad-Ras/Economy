@@ -1,0 +1,18 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.faq.name",
+  "category": "avilixeconomy:shop_guide/tips",
+  "icon": "minecraft:book",
+  "sortnum": 1,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.faq.t",
+      "text": "guide.avilixeconomy.shopbook.e.faq.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.faq.t2",
+      "text": "guide.avilixeconomy.shopbook.e.faq.p2"
+    }
+  ]
+}

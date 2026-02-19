@@ -3,11 +3,14 @@ package com.roften.avilixeconomy;
 import com.roften.avilixeconomy.database.DatabaseManager;
 import com.roften.avilixeconomy.config.AvilixEconomyCommonConfig;
 import com.roften.avilixeconomy.util.MoneyUtils;
+import com.roften.avilixeconomy.registry.ModItems;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.server.ServerAboutToStartEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import net.neoforged.fml.ModList;
+import net.minecraft.world.item.ItemStack;
 
 import java.util.UUID;
 
@@ -23,7 +26,13 @@ public class EconomyEvents {
     // =============================
     @SubscribeEvent
     public void onServerAboutToStart(ServerAboutToStartEvent event) {
-        // Ensure server commission account exists
+        System.out.println("[Economy] Инициализация DatabaseManager...");
+        DatabaseManager.init();
+
+        // Load shelf render overrides (admin tuning)
+        com.roften.avilixeconomy.shop.render.RenderOverrideManager.reloadFromDb();
+
+        // Ensure server commission account exists (after DB init)
         try {
             java.util.UUID serverUuid = java.util.UUID.fromString(AvilixEconomyCommonConfig.ECONOMY.serverAccountUuid.get());
             String serverName = AvilixEconomyCommonConfig.ECONOMY.serverAccountName.get();
@@ -32,9 +41,6 @@ public class EconomyEvents {
         } catch (Exception e) {
             e.printStackTrace();
         }
-
-        System.out.println("[Economy] Инициализация DatabaseManager...");
-        DatabaseManager.init();
     }
 
     @SubscribeEvent
@@ -71,8 +77,42 @@ public class EconomyEvents {
             // ОБЯЗАТЕЛЬНО отправить баланс на клиент
             EconomyData.sendBalanceUpdateToPlayer(uuid);
 
+            if (player instanceof net.minecraft.server.level.ServerPlayer sp) {
+                // Give the player-facing shop guide once (optional, requires Patchouli to be useful)
+                tryGiveShopGuideOnce(sp);
+
+                // Also send render override snapshot (client cache)
+                try {
+                    var entries = com.roften.avilixeconomy.shop.render.RenderOverrideManager.snapshotAll();
+                    sp.connection.send(new com.roften.avilixeconomy.network.NetworkRegistration.ShopRenderOverridesSyncPayload(entries));
+                } catch (Throwable ignored) {
+                }
+            }
+
         } catch (Exception ex) {
             ex.printStackTrace();
+        }
+    }
+
+    /**
+     * Gives the player-facing shop guide exactly once per player.
+     * The item itself is safe even without Patchouli installed (it just won't open the book).
+     */
+    private static void tryGiveShopGuideOnce(net.minecraft.server.level.ServerPlayer sp) {
+        try {
+            var tag = sp.getPersistentData();
+            final String KEY = "avilixeconomy_shop_guide_given";
+            if (tag.getBoolean(KEY)) return;
+
+            // Give the item (try inventory first, otherwise drop)
+            ItemStack book = new ItemStack(ModItems.SHOP_GUIDE.get());
+            boolean added = sp.getInventory().add(book);
+            if (!added) {
+                sp.drop(book, false);
+            }
+
+            tag.putBoolean(KEY, true);
+        } catch (Throwable ignored) {
         }
     }
 }

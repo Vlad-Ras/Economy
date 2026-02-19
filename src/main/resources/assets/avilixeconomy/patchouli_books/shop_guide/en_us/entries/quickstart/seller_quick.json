@@ -1,0 +1,17 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.seller_quick.name",
+  "icon": "minecraft:chest",
+  "category": "avilixeconomy:quickstart",
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.seller_quick.t1",
+      "text": "guide.avilixeconomy.shopbook.e.seller_quick.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.seller_quick.t2",
+      "text": "guide.avilixeconomy.shopbook.e.seller_quick.p2"
+    }
+  ]
+}

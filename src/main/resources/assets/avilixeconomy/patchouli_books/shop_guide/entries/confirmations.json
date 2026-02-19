@@ -1,0 +1,17 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.confirmations.name",
+  "icon": "minecraft:stone_button",
+  "category": "interface",
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.confirmations.t1",
+      "text": "guide.avilixeconomy.shopbook.e.confirmations.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.confirmations.t2",
+      "text": "guide.avilixeconomy.shopbook.e.confirmations.p2"
+    }
+  ]
+}

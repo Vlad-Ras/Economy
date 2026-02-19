@@ -1,0 +1,17 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.seller_limits.name",
+  "icon": "minecraft:hopper",
+  "category": "selling",
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.seller_limits.t1",
+      "text": "guide.avilixeconomy.shopbook.e.seller_limits.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.seller_limits.t2",
+      "text": "guide.avilixeconomy.shopbook.e.seller_limits.p2"
+    }
+  ]
+}

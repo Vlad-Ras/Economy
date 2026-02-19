@@ -1,0 +1,23 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.troubleshoot.name",
+  "category": "avilixeconomy:shop_guide/tips",
+  "icon": "minecraft:redstone",
+  "sortnum": 0,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.troubleshoot.t",
+      "text": "guide.avilixeconomy.shopbook.e.troubleshoot.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.troubleshoot.t2",
+      "text": "guide.avilixeconomy.shopbook.e.troubleshoot.p2"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.troubleshoot.t3",
+      "text": "guide.avilixeconomy.shopbook.e.troubleshoot.p3"
+    }
+  ]
+}

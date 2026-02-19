@@ -14,6 +14,8 @@ import net.minecraft.world.inventory.ContainerLevelAccess;
 import net.minecraft.world.inventory.DataSlot;
 import net.minecraft.world.inventory.Slot;
 import net.neoforged.neoforge.items.SlotItemHandler;
+import net.neoforged.neoforge.items.IItemHandler;
+import net.neoforged.neoforge.items.ItemStackHandler;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -54,12 +56,20 @@ public class ShopConfigMenu extends AbstractContainerMenu {
     private int syncedMode;
     private int sellLo, sellHi;
     private int buyLo, buyHi;
+    // Per-template-slot prices are synced via BE update tag; we read them from the client-side BE.
+    private int selectedTemplateSlot = 0;
 
     private int priceLo;
     private int priceHi;
     private int availableLots;
     private int commissionSellBps;
     private int commissionBuyBps;
+
+    /** Synced flag: is current player allowed to tune render transforms (admin-only). */
+    private int renderEditFlag;
+
+    // Client-side safety: when the BE isn't present, provide a stable empty handler for screens.
+    private final ItemStackHandler emptyTemplate = new ItemStackHandler(9);
 
     public static ShopConfigMenu create(int id, Inventory inv, ShopBlockEntity shop) {
         return new ShopConfigMenu(id, inv, shop.getBlockPos(), shop);
@@ -97,6 +107,22 @@ public class ShopConfigMenu extends AbstractContainerMenu {
             @Override public void set(int v){ commissionBuyBps = v; }
         });
 
+        // admin flag: render tuning
+        this.addDataSlot(new DataSlot() {
+            @Override
+            public int get() {
+                if (inv.player instanceof ServerPlayer sp) {
+                    return Permissions.canEditShopRender(sp) ? 1 : 0;
+                }
+                return 0;
+            }
+
+            @Override
+            public void set(int v) {
+                renderEditFlag = v;
+            }
+        });
+
         // sell price
         this.addDataSlot(new DataSlot(){
             @Override public int get(){ long bits = Double.doubleToRawLongBits(shop != null ? shop.getPricePerLot() : 0.0); return (int)(bits & 0xFFFFFFFFL);} 
@@ -115,6 +141,9 @@ public class ShopConfigMenu extends AbstractContainerMenu {
             @Override public int get(){ long bits = Double.doubleToRawLongBits(shop != null ? shop.getPriceBuyPerLot() : 0.0); return (int)((bits>>>32)&0xFFFFFFFFL);} 
             @Override public void set(int v){ buyHi=v; }
         });
+
+
+
         this.access = ContainerLevelAccess.create(inv.player.level(), pos);
 
         // ===== template 3x3 (editable) + stock 6x9 (editable) =====
@@ -173,6 +202,14 @@ public class ShopConfigMenu extends AbstractContainerMenu {
         });
     }
 
+    /**
+     * Template inventory (3x3) used by the shelf renderer. Exposed for the render tuning UI.
+     * On the client, the BE might be missing during edge-cases; in that case returns an empty handler.
+     */
+    public IItemHandler getTemplateInventory() {
+        return shop != null ? shop.getTemplate() : emptyTemplate;
+    }
+
     @Override
     public void broadcastChanges() {
         if (shop != null) {
@@ -200,6 +237,10 @@ public class ShopConfigMenu extends AbstractContainerMenu {
     @Nullable
     public ShopBlockEntity getShop() {
         return shop;
+    }
+
+    public boolean canEditRender() {
+        return renderEditFlag != 0;
     }
 
     /**
@@ -246,6 +287,7 @@ public class ShopConfigMenu extends AbstractContainerMenu {
 
     private void markShopDirtyAndSync() {
         if (shop == null) return;
+        shop.enforceMinPriceFloors();
         shop.setChanged();
         var lvl = shop.getLevel();
         if (lvl != null && !lvl.isClientSide) {
@@ -265,6 +307,23 @@ public double getSellPriceSynced(){ long bits = ((long)sellHi<<32) | (sellLo & 0
 
 public double getBuyPriceSynced(){ long bits = ((long)buyHi<<32) | (buyLo & 0xFFFFFFFFL);
         return Double.longBitsToDouble(bits); }
+
+
+public void setSelectedTemplateSlot(int slot){
+    this.selectedTemplateSlot = Math.max(0, Math.min(8, slot));
+}
+
+public int getSelectedTemplateSlot(){ return selectedTemplateSlot; }
+
+public double getSellSlotPriceSynced(){
+    return shop != null ? shop.getSlotPriceForMode(0, selectedTemplateSlot) : 0.0;
+}
+
+public double getBuySlotPriceSynced(){
+    return shop != null ? shop.getSlotPriceForMode(1, selectedTemplateSlot) : 0.0;
+}
+
+public double getActiveSlotPriceSynced(){ return getMode()==1 ? getBuySlotPriceSynced() : getSellSlotPriceSynced(); }
 
 public double getActivePriceSynced(){ return getMode()==1 ? getBuyPriceSynced() : getSellPriceSynced(); }
 @Override

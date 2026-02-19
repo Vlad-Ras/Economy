@@ -1,0 +1,24 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.shop_block.name",
+  "category": "avilixeconomy:shop_guide/getting_started",
+  "icon": "avilixeconomy:shop",
+  "sortnum": 1,
+  "pages": [
+    {
+      "type": "patchouli:spotlight",
+      "item": "avilixeconomy:shop",
+      "title": "guide.avilixeconomy.shopbook.e.shop_block.t",
+      "text": "guide.avilixeconomy.shopbook.e.shop_block.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.shop_block.t2",
+      "text": "guide.avilixeconomy.shopbook.e.shop_block.p2"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.shop_block.t3",
+      "text": "guide.avilixeconomy.shopbook.e.shop_block.p3"
+    }
+  ]
+}

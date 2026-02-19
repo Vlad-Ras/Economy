@@ -57,7 +57,7 @@ public class MoveBalanceHudScreen extends Screen {
         g.fill(0, 0, sw, sh, 0xAA000000);
         Font font = mc.font;
 
-        String text = "Баланс: " + MoneyUtils.formatSmart(ClientBalanceData.getBalance());
+        String text = "Баланс: " + MoneyUtils.formatNoks(ClientBalanceData.getBalance());
         int w = font.width(text);
         int h = font.lineHeight;
 
@@ -86,7 +86,7 @@ public class MoveBalanceHudScreen extends Screen {
 
         Minecraft mc = Minecraft.getInstance();
         Font font = mc.font;
-        String text = "Баланс: " + MoneyUtils.formatSmart(ClientBalanceData.getBalance());
+        String text = "Баланс: " + MoneyUtils.formatNoks(ClientBalanceData.getBalance());
         int w = font.width(text);
         int h = font.lineHeight;
 

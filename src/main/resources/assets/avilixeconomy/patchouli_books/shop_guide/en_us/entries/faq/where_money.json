@@ -1,0 +1,17 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.where_money.name",
+  "icon": "minecraft:hopper",
+  "category": "avilixeconomy:faq",
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.where_money.t1",
+      "text": "guide.avilixeconomy.shopbook.e.where_money.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.where_money.t2",
+      "text": "guide.avilixeconomy.shopbook.e.where_money.p2"
+    }
+  ]
+}

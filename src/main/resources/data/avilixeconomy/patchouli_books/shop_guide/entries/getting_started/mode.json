@@ -1,0 +1,23 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.mode.name",
+  "category": "avilixeconomy:shop_guide/getting_started",
+  "icon": "minecraft:lever",
+  "sortnum": 4,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.mode.t",
+      "text": "guide.avilixeconomy.shopbook.e.mode.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.mode.t2",
+      "text": "guide.avilixeconomy.shopbook.e.mode.p2"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.mode.t3",
+      "text": "guide.avilixeconomy.shopbook.e.mode.p3"
+    }
+  ]
+}

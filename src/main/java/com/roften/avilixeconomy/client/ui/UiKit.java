@@ -16,7 +16,7 @@ public final class UiKit {
      * Bump this string whenever you want to verify the client is running the latest GUI code.
      * It is rendered on-screen by shop screens and also logged once on screen init.
      */
-    public static final String GUI_BUILD_STAMP = "AvilixEconomy GUI BUILD 2025-12-20";
+    public static final String GUI_BUILD_STAMP = "AvilixEconomy GUI BUILD render-tuner 2026-02-02";
 
     private UiKit() {
     }

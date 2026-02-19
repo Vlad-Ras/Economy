@@ -1,0 +1,17 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.min_price_player.name",
+  "icon": "minecraft:iron_ingot",
+  "category": "pricing",
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.min_price_player.t1",
+      "text": "guide.avilixeconomy.shopbook.e.min_price_player.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.min_price_player.t2",
+      "text": "guide.avilixeconomy.shopbook.e.min_price_player.p2"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.screens.name",
+  "icon": "minecraft:map",
+  "category": "interface",
+  "pages": [
+    {
+      "type": "patchouli:image",
+      "images": [
+        "avilixeconomy:textures/gui/patchouli/shop_buy.png"
+      ],
+      "title": "guide.avilixeconomy.shopbook.e.screens.t1",
+      "text": "guide.avilixeconomy.shopbook.e.screens.p1"
+    },
+    {
+      "type": "patchouli:image",
+      "images": [
+        "avilixeconomy:textures/gui/patchouli/shop_config.png"
+      ],
+      "title": "guide.avilixeconomy.shopbook.e.screens.t2",
+      "text": "guide.avilixeconomy.shopbook.e.screens.p2"
+    },
+    {
+      "type": "patchouli:image",
+      "images": [
+        "avilixeconomy:textures/gui/patchouli/trade.png"
+      ],
+      "title": "guide.avilixeconomy.shopbook.e.screens.t3",
+      "text": "guide.avilixeconomy.shopbook.e.screens.p3"
+    }
+  ]
+}

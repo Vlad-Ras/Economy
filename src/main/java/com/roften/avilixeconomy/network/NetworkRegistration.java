@@ -19,6 +19,12 @@ import net.minecraft.network.chat.Component;
 import com.roften.avilixeconomy.database.DatabaseManager;
 import com.roften.avilixeconomy.shop.screen.ShopClientState;
 import com.roften.avilixeconomy.shop.screen.ShopToastState;
+import com.roften.avilixeconomy.shop.client.ShopRenderOverridesClient;
+import com.roften.avilixeconomy.shop.render.RenderOverrideEntry;
+import com.roften.avilixeconomy.shop.render.RenderOverrideManager;
+import com.roften.avilixeconomy.shop.render.RenderOverrideScope;
+import com.roften.avilixeconomy.shop.render.RenderTransform;
+import com.roften.avilixeconomy.util.Permissions;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -46,6 +52,12 @@ public class NetworkRegistration {
     public static final ResourceLocation SHOP_SET_PRICE_PACKET_ID =
             ResourceLocation.fromNamespaceAndPath("avilixeconomy", "shop_set_price");
 
+    public static final ResourceLocation SHOP_SET_SLOT_PRICE_PACKET_ID =
+            ResourceLocation.fromNamespaceAndPath("avilixeconomy", "shop_set_slot_price");
+
+    public static final ResourceLocation SHOP_SLOT_TRADE_PACKET_ID =
+            ResourceLocation.fromNamespaceAndPath("avilixeconomy", "shop_slot_trade");
+
     public static final ResourceLocation SHOP_SET_MODE_PACKET_ID =
             ResourceLocation.fromNamespaceAndPath("avilixeconomy", "shop_set_mode");
 
@@ -57,6 +69,18 @@ public class NetworkRegistration {
 
     public static final ResourceLocation SHOP_SALES_PACKET_ID =
             ResourceLocation.fromNamespaceAndPath("avilixeconomy", "shop_sales");
+
+    public static final ResourceLocation SHOP_RENDER_OVERRIDES_SYNC_PACKET_ID =
+            ResourceLocation.fromNamespaceAndPath("avilixeconomy", "shop_render_overrides_sync");
+    public static final ResourceLocation SHOP_RENDER_OVERRIDE_UPSERT_PACKET_ID =
+            ResourceLocation.fromNamespaceAndPath("avilixeconomy", "shop_render_override_upsert");
+    public static final ResourceLocation SHOP_RENDER_OVERRIDE_REMOVE_PACKET_ID =
+            ResourceLocation.fromNamespaceAndPath("avilixeconomy", "shop_render_override_remove");
+
+    public static final ResourceLocation SHOP_RENDER_OVERRIDE_SET_C2S_PACKET_ID =
+            ResourceLocation.fromNamespaceAndPath("avilixeconomy", "shop_render_override_set");
+    public static final ResourceLocation SHOP_RENDER_OVERRIDE_DELETE_C2S_PACKET_ID =
+            ResourceLocation.fromNamespaceAndPath("avilixeconomy", "shop_render_override_delete");
 
     public static final ResourceLocation SHOP_TOAST_PACKET_ID =
             ResourceLocation.fromNamespaceAndPath("avilixeconomy", "shop_toast");
@@ -263,7 +287,47 @@ public record BalancePayload(double balance) implements CustomPacketPayload {
         }
     }
 
-    // === Register ===
+    
+public static record ShopSetSlotPricePayload(BlockPos pos, int mode, int templateSlot, double price) implements CustomPacketPayload {
+    public static final Type<ShopSetSlotPricePayload> TYPE = new Type<>(SHOP_SET_SLOT_PRICE_PACKET_ID);
+
+    public static final StreamCodec<RegistryFriendlyByteBuf, ShopSetSlotPricePayload> CODEC =
+            StreamCodec.of(
+                    (buf, p) -> {
+                        buf.writeBlockPos(p.pos());
+                        buf.writeInt(p.mode());
+                        buf.writeVarInt(p.templateSlot());
+                        buf.writeDouble(p.price());
+                    },
+                    buf -> new ShopSetSlotPricePayload(buf.readBlockPos(), buf.readInt(), buf.readVarInt(), buf.readDouble())
+            );
+
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
+    }
+}
+
+public static record ShopSlotTradePayload(BlockPos pos, int templateSlot, int units) implements CustomPacketPayload {
+    public static final Type<ShopSlotTradePayload> TYPE = new Type<>(SHOP_SLOT_TRADE_PACKET_ID);
+
+    public static final StreamCodec<RegistryFriendlyByteBuf, ShopSlotTradePayload> CODEC =
+            StreamCodec.of(
+                    (buf, p) -> {
+                        buf.writeBlockPos(p.pos());
+                        buf.writeVarInt(p.templateSlot());
+                        buf.writeVarInt(p.units());
+                    },
+                    buf -> new ShopSlotTradePayload(buf.readBlockPos(), buf.readVarInt(), buf.readVarInt())
+            );
+
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
+    }
+}
+
+// === Register ===
     public static void register(final RegisterPayloadHandlersEvent event) {
         var registrar = event.registrar("1.0.0");
 
@@ -332,6 +396,31 @@ registrar.playToClient(
             ShopClientState.putSales(payload.pos(), payload.offset(), payload.limit(), payload.hasMore(), rows);
         })
 );
+
+        // Render overrides: sync + updates
+        registrar.playToClient(
+                ShopRenderOverridesSyncPayload.TYPE,
+                ShopRenderOverridesSyncPayload.CODEC,
+                (payload, context) -> context.enqueueWork(() ->
+                        ShopRenderOverridesClient.replaceAll(payload.entries())
+                )
+        );
+
+        registrar.playToClient(
+                ShopRenderOverrideUpsertPayload.TYPE,
+                ShopRenderOverrideUpsertPayload.CODEC,
+                (payload, context) -> context.enqueueWork(() ->
+                        ShopRenderOverridesClient.upsert(payload.scope(), payload.key(), payload.transform())
+                )
+        );
+
+        registrar.playToClient(
+                ShopRenderOverrideRemovePayload.TYPE,
+                ShopRenderOverrideRemovePayload.CODEC,
+                (payload, context) -> context.enqueueWork(() ->
+                        ShopRenderOverridesClient.remove(payload.scope(), payload.key())
+                )
+        );
 
         registrar.playToServer(
                 TradeUpdateMoneyPayload.TYPE,
@@ -423,9 +512,31 @@ registrar.playToServer(
 
                     double price = Math.max(0.0, payload.price());
                     shop.setPriceForMode(payload.mode(), price);
-                    sendShopToast(sp, Component.translatable("msg.avilixeconomy.shop.price_set", com.roften.avilixeconomy.util.MoneyUtils.formatSmart(price)), true);
+                    double effective = payload.mode() == 1 ? shop.getPriceBuyPerLot() : shop.getPricePerLot();
+                    sendShopToast(sp, Component.translatable("msg.avilixeconomy.shop.price_set", com.roften.avilixeconomy.util.MoneyUtils.formatNoks(effective)), true);
                 })
         );
+
+
+registrar.playToServer(
+        ShopSetSlotPricePayload.TYPE,
+        ShopSetSlotPricePayload.CODEC,
+        (payload, context) -> context.enqueueWork(() -> {
+            if (!(context.player() instanceof ServerPlayer sp)) return;
+            if (!(sp.containerMenu instanceof ShopConfigMenu menu)) return;
+            if (!menu.getPos().equals(payload.pos())) return;
+
+            if (!(sp.level().getBlockEntity(payload.pos()) instanceof ShopBlockEntity shop)) return;
+            if (!shop.isOwner(sp) && !com.roften.avilixeconomy.util.Permissions.canOpenAnyShop(sp)) return;
+
+            double price = Math.max(0.0, payload.price());
+            int slot = payload.templateSlot();
+            shop.setSlotPriceForMode(payload.mode(), slot, price);
+            double effective = shop.getSlotPriceForMode(payload.mode(), slot);
+            sendShopToast(sp, Component.translatable("msg.avilixeconomy.shop.price_set", com.roften.avilixeconomy.util.MoneyUtils.formatNoks(effective)), true);
+        })
+);
+
 
         registrar.playToServer(
                 ShopSetModePayload.TYPE,
@@ -459,6 +570,38 @@ registrar.playToServer(
                     shop.trySellToShop(sp, lots);
                 })
         );
+
+
+registrar.playToServer(
+        ShopSlotTradePayload.TYPE,
+        ShopSlotTradePayload.CODEC,
+        (payload, context) -> context.enqueueWork(() -> {
+            if (!(context.player() instanceof ServerPlayer sp)) return;
+            if (!(sp.containerMenu instanceof ShopBuyMenu menu)) return;
+            if (!menu.getPos().equals(payload.pos())) return;
+
+            if (!(sp.level().getBlockEntity(payload.pos()) instanceof ShopBlockEntity shop)) return;
+
+            int slot = payload.templateSlot();
+            int units = payload.units();
+            if (slot < 0 || slot >= 9 || units <= 0) {
+                sendShopToast(sp, Component.translatable("msg.avilixeconomy.shop.invalid_qty"), false);
+                return;
+            }
+
+            boolean ok;
+            if (shop.isBuyMode()) {
+                ok = shop.trySellSlotToShop(sp, slot, units);
+            } else {
+                ok = shop.tryBuySlot(sp, slot, units);
+            }
+
+            if (!ok) {
+                // server-side methods already toast on most errors; keep silent to avoid spam
+            }
+        })
+);
+
 
         registrar.playToServer(
                 ShopBuyPayload.TYPE,
@@ -495,7 +638,7 @@ registrar.playToServer(
                     double total = com.roften.avilixeconomy.util.MoneyUtils.round2(pricePer * (double) lots);
                     double bal = EconomyData.getBalance(sp.getUUID());
                     if (bal + 1e-9 < total) {
-                        sendShopToast(sp, Component.translatable("msg.avilixeconomy.shop.not_enough_money", com.roften.avilixeconomy.util.MoneyUtils.formatSmart(total)), false);
+                        sendShopToast(sp, Component.translatable("msg.avilixeconomy.shop.not_enough_money", com.roften.avilixeconomy.util.MoneyUtils.formatNoks(total)), false);
                         return;
                     }
 
@@ -503,8 +646,36 @@ registrar.playToServer(
                     if (!ok) {
                         sendShopToast(sp, Component.translatable("msg.avilixeconomy.shop.purchase_failed"), false);
                     } else {
-                        sendShopToast(sp, Component.translatable("msg.avilixeconomy.shop.purchased", lots, com.roften.avilixeconomy.util.MoneyUtils.formatSmart(total)), true);
+                        sendShopToast(sp, Component.translatable("msg.avilixeconomy.shop.purchased", lots, com.roften.avilixeconomy.util.MoneyUtils.formatNoks(total)), true);
                     }
+                })
+        );
+
+        // Admin: persist/remove shelf render overrides
+        registrar.playToServer(
+                ShopRenderOverrideSetC2SPayload.TYPE,
+                ShopRenderOverrideSetC2SPayload.CODEC,
+                (payload, context) -> context.enqueueWork(() -> {
+                    if (!(context.player() instanceof ServerPlayer sp)) return;
+                    if (!Permissions.canEditShopRender(sp)) return;
+                    if (payload.key() == null || payload.key().isBlank()) return;
+                    if (payload.transform() == null) return;
+
+                    RenderOverrideManager.upsert(payload.scope(), payload.key(), payload.transform());
+                    RenderOverrideManager.broadcastUpsert(sp.server, payload.scope(), payload.key(), payload.transform());
+                })
+        );
+
+        registrar.playToServer(
+                ShopRenderOverrideDeleteC2SPayload.TYPE,
+                ShopRenderOverrideDeleteC2SPayload.CODEC,
+                (payload, context) -> context.enqueueWork(() -> {
+                    if (!(context.player() instanceof ServerPlayer sp)) return;
+                    if (!Permissions.canEditShopRender(sp)) return;
+                    if (payload.key() == null || payload.key().isBlank()) return;
+
+                    RenderOverrideManager.delete(payload.scope(), payload.key());
+                    RenderOverrideManager.broadcastRemove(sp.server, payload.scope(), payload.key());
                 })
         );
 
@@ -632,5 +803,154 @@ public record ShopSalesPayload(BlockPos pos, int limit, int offset, boolean hasM
         return TYPE;
     }
 }
+
+    // =============================
+    // SHOP SHELF RENDER OVERRIDES (admin tuning)
+    // =============================
+
+    public record ShopRenderOverridesSyncPayload(List<RenderOverrideEntry> entries) implements CustomPacketPayload {
+        public static final Type<ShopRenderOverridesSyncPayload> TYPE = new Type<>(SHOP_RENDER_OVERRIDES_SYNC_PACKET_ID);
+
+        public static final StreamCodec<RegistryFriendlyByteBuf, ShopRenderOverridesSyncPayload> CODEC = StreamCodec.of(
+                (buf, p) -> {
+                    List<RenderOverrideEntry> list = p.entries() == null ? List.of() : p.entries();
+                    buf.writeVarInt(list.size());
+                    for (RenderOverrideEntry e : list) {
+                        buf.writeByte(e.scope().toByte());
+                        buf.writeUtf(e.key());
+                        RenderTransform t = e.transform();
+                        buf.writeFloat(t.offX());
+                        buf.writeFloat(t.offY());
+                        buf.writeFloat(t.offZ());
+                        buf.writeFloat(t.rotX());
+                        buf.writeFloat(t.rotY());
+                        buf.writeFloat(t.rotZ());
+                        buf.writeFloat(t.scaleMul());
+                        buf.writeFloat(t.extraLift());
+                    }
+                },
+                (buf) -> {
+                    int n = buf.readVarInt();
+                    List<RenderOverrideEntry> out = new ArrayList<>(Math.max(0, n));
+                    for (int i = 0; i < n; i++) {
+                        RenderOverrideScope scope = RenderOverrideScope.fromByte(buf.readByte());
+                        String key = buf.readUtf(128);
+                        RenderTransform t = new RenderTransform(
+                                buf.readFloat(), buf.readFloat(), buf.readFloat(),
+                                buf.readFloat(), buf.readFloat(), buf.readFloat(),
+                                buf.readFloat(), buf.readFloat()
+                        );
+                        out.add(new RenderOverrideEntry(scope, key, t));
+                    }
+                    return new ShopRenderOverridesSyncPayload(out);
+                }
+        );
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record ShopRenderOverrideUpsertPayload(RenderOverrideScope scope, String key, RenderTransform transform) implements CustomPacketPayload {
+        public static final Type<ShopRenderOverrideUpsertPayload> TYPE = new Type<>(SHOP_RENDER_OVERRIDE_UPSERT_PACKET_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, ShopRenderOverrideUpsertPayload> CODEC = StreamCodec.of(
+                (buf, p) -> {
+                    buf.writeByte(p.scope().toByte());
+                    buf.writeUtf(p.key());
+                    RenderTransform t = p.transform();
+                    buf.writeFloat(t.offX());
+                    buf.writeFloat(t.offY());
+                    buf.writeFloat(t.offZ());
+                    buf.writeFloat(t.rotX());
+                    buf.writeFloat(t.rotY());
+                    buf.writeFloat(t.rotZ());
+                    buf.writeFloat(t.scaleMul());
+                    buf.writeFloat(t.extraLift());
+                },
+                (buf) -> {
+                    RenderOverrideScope scope = RenderOverrideScope.fromByte(buf.readByte());
+                    String key = buf.readUtf(128);
+                    RenderTransform t = new RenderTransform(
+                            buf.readFloat(), buf.readFloat(), buf.readFloat(),
+                            buf.readFloat(), buf.readFloat(), buf.readFloat(),
+                            buf.readFloat(), buf.readFloat()
+                    );
+                    return new ShopRenderOverrideUpsertPayload(scope, key, t);
+                }
+        );
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record ShopRenderOverrideRemovePayload(RenderOverrideScope scope, String key) implements CustomPacketPayload {
+        public static final Type<ShopRenderOverrideRemovePayload> TYPE = new Type<>(SHOP_RENDER_OVERRIDE_REMOVE_PACKET_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, ShopRenderOverrideRemovePayload> CODEC = StreamCodec.of(
+                (buf, p) -> {
+                    buf.writeByte(p.scope().toByte());
+                    buf.writeUtf(p.key());
+                },
+                (buf) -> new ShopRenderOverrideRemovePayload(RenderOverrideScope.fromByte(buf.readByte()), buf.readUtf(128))
+        );
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    // Client -> Server (admin)
+    public record ShopRenderOverrideSetC2SPayload(RenderOverrideScope scope, String key, RenderTransform transform) implements CustomPacketPayload {
+        public static final Type<ShopRenderOverrideSetC2SPayload> TYPE = new Type<>(SHOP_RENDER_OVERRIDE_SET_C2S_PACKET_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, ShopRenderOverrideSetC2SPayload> CODEC = StreamCodec.of(
+                (buf, p) -> {
+                    buf.writeByte(p.scope().toByte());
+                    buf.writeUtf(p.key());
+                    RenderTransform t = p.transform();
+                    buf.writeFloat(t.offX());
+                    buf.writeFloat(t.offY());
+                    buf.writeFloat(t.offZ());
+                    buf.writeFloat(t.rotX());
+                    buf.writeFloat(t.rotY());
+                    buf.writeFloat(t.rotZ());
+                    buf.writeFloat(t.scaleMul());
+                    buf.writeFloat(t.extraLift());
+                },
+                (buf) -> {
+                    RenderOverrideScope scope = RenderOverrideScope.fromByte(buf.readByte());
+                    String key = buf.readUtf(128);
+                    RenderTransform t = new RenderTransform(
+                            buf.readFloat(), buf.readFloat(), buf.readFloat(),
+                            buf.readFloat(), buf.readFloat(), buf.readFloat(),
+                            buf.readFloat(), buf.readFloat()
+                    );
+                    return new ShopRenderOverrideSetC2SPayload(scope, key, t);
+                }
+        );
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record ShopRenderOverrideDeleteC2SPayload(RenderOverrideScope scope, String key) implements CustomPacketPayload {
+        public static final Type<ShopRenderOverrideDeleteC2SPayload> TYPE = new Type<>(SHOP_RENDER_OVERRIDE_DELETE_C2S_PACKET_ID);
+        public static final StreamCodec<RegistryFriendlyByteBuf, ShopRenderOverrideDeleteC2SPayload> CODEC = StreamCodec.of(
+                (buf, p) -> {
+                    buf.writeByte(p.scope().toByte());
+                    buf.writeUtf(p.key());
+                },
+                (buf) -> new ShopRenderOverrideDeleteC2SPayload(RenderOverrideScope.fromByte(buf.readByte()), buf.readUtf(128))
+        );
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
 
 }

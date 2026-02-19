@@ -1,0 +1,22 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.slot_vs_lot.name",
+  "icon": "minecraft:comparator",
+  "category": "avilixeconomy:interface",
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.slot_vs_lot.t1",
+      "text": "guide.avilixeconomy.shopbook.e.slot_vs_lot.p1"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.slot_vs_lot.t2",
+      "text": "guide.avilixeconomy.shopbook.e.slot_vs_lot.p2"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.slot_vs_lot.t3",
+      "text": "guide.avilixeconomy.shopbook.e.slot_vs_lot.p3"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "guide.avilixeconomy.shopbook.e.first_steps.name",
+  "icon": "avilixeconomy:shop",
+  "category": "avilixeconomy:quickstart",
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.first_steps.t1",
+      "text": "guide.avilixeconomy.shopbook.e.first_steps.p1"
+    },
+    {
+      "type": "patchouli:crafting",
+      "recipe": "avilixeconomy:shop_guide",
+      "title": "guide.avilixeconomy.shopbook.e.first_steps.t2",
+      "text": "guide.avilixeconomy.shopbook.e.first_steps.p2"
+    },
+    {
+      "type": "patchouli:text",
+      "title": "guide.avilixeconomy.shopbook.e.first_steps.t3",
+      "text": "guide.avilixeconomy.shopbook.e.first_steps.p3"
+    }
+  ]
+}

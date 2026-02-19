@@ -10,6 +10,7 @@ import com.roften.avilixeconomy.registry.ModMenus;
 import com.roften.avilixeconomy.registry.CreativeTabEvents;
 import com.roften.avilixeconomy.shop.ShopInteractEvents;
 import com.roften.avilixeconomy.shop.ShopBreakProtectionEvents;
+import com.roften.avilixeconomy.pricing.MinPriceManager;
 import com.roften.avilixeconomy.util.Permissions;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
@@ -17,6 +18,7 @@ import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
 import org.slf4j.Logger;
 
@@ -47,6 +49,7 @@ public class AvilixEconomy {
         NeoForge.EVENT_BUS.register(new ShopInteractEvents());
         NeoForge.EVENT_BUS.register(new ShopBreakProtectionEvents());
         NeoForge.EVENT_BUS.addListener(EconomyCommands::register);
+        NeoForge.EVENT_BUS.addListener(this::reloadMinPrices);
 
         // LuckPerms / PermissionAPI nodes
         // LuckPerms (and any permission provider) can grant this node to bypass shop ownership.
@@ -64,5 +67,20 @@ public class AvilixEconomy {
 
     private void registerCapabilities(RegisterCapabilitiesEvent event) {
         ModBlockEntities.registerCapabilities(event);
+    }
+
+
+    private void reloadMinPrices(ServerStartingEvent event) {
+        try {
+            MinPriceManager.reload();
+            String err = MinPriceManager.getLastError();
+            if (err != null) {
+                LOGGER.warn("Failed to load min_prices.json: {}", err);
+            } else {
+                LOGGER.info("Min prices loaded: {} entries", MinPriceManager.snapshot().size());
+            }
+        } catch (Exception ex) {
+            LOGGER.warn("Failed to load min_prices.json", ex);
+        }
     }
 }

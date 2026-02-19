@@ -89,7 +89,10 @@ public class TradeScreen extends ResponsiveContainerScreen<TradeMenu> {
     protected void init() {
         super.init();
 
-        // попытка подтянуть последнее состояние, если уже пришло
+        
+        // FTB Library can inject sidebar buttons into any Screen; purge them.
+        stripFtbSidebarWidgets();
+// попытка подтянуть последнее состояние, если уже пришло
         TradeClientState state = TradeClientState.get(menu.getSessionId());
         if (state != null) {
             applyState(state);
@@ -236,8 +239,8 @@ public class TradeScreen extends ResponsiveContainerScreen<TradeMenu> {
         double myMoney = menu.getSide() == TradeMenu.Side.LEFT ? leftMoney : rightMoney;
         double theirMoney = menu.getSide() == TradeMenu.Side.LEFT ? rightMoney : leftMoney;
 
-        gfx.drawString(this.font, Component.translatable("screen.avilixeconomy.trade.your_balance", MoneyUtils.formatSmart(myMoney)), infoLeftX, infoTopY + 6, 0xFFFFFF, false);
-        gfx.drawString(this.font, Component.translatable("screen.avilixeconomy.trade.partner_balance", MoneyUtils.formatSmart(theirMoney)), infoRightX, infoTopY + 6, 0xFFFFFF, false);
+        gfx.drawString(this.font, Component.translatable("screen.avilixeconomy.trade.your_balance", MoneyUtils.formatNoks(myMoney)), infoLeftX, infoTopY + 6, 0xFFFFFF, false);
+        gfx.drawString(this.font, Component.translatable("screen.avilixeconomy.trade.partner_balance", MoneyUtils.formatNoks(theirMoney)), infoRightX, infoTopY + 6, 0xFFFFFF, false);
 
         // Label for the money input box (in the left info panel)
         gfx.drawString(this.font, Component.translatable("screen.avilixeconomy.trade.amount_label"), infoLeftX, infoTopY + 18, 0xCFCFCF, false);
@@ -302,7 +305,7 @@ public class TradeScreen extends ResponsiveContainerScreen<TradeMenu> {
         // синхронизируем поле денег только если игрок не печатает
         if (this.moneyBox != null && !moneyBox.isFocused()) {
             double myMoney = menu.getSide() == TradeMenu.Side.LEFT ? leftMoney : rightMoney;
-            this.moneyBox.setValue(MoneyUtils.formatSmart(myMoney));
+            this.moneyBox.setValue(MoneyUtils.formatNoks(myMoney));
             this.lastSentMoney = myMoney;
         }
 
@@ -415,4 +418,33 @@ public class TradeScreen extends ResponsiveContainerScreen<TradeMenu> {
         String t = trimToWidth(font, text, maxWidth);
         gfx.drawString(font, t, x, y, color, false);
     }
+
+    
+    @Override
+    public void render(net.minecraft.client.gui.GuiGraphics gfx, int mouseX, int mouseY, float partialTick) {
+        // Remove FTB sidebar widgets injected into this Screen.
+        stripFtbSidebarWidgets();
+        super.render(gfx, mouseX, mouseY, partialTick);
+    }
+
+    // --- FTB Library / Quests sidebar suppression ---
+    private void stripFtbSidebarWidgets() {
+        try {
+            this.children().removeIf(TradeScreen::isFtbSidebarObject);
+        } catch (Throwable ignored) {}
+        try {
+            this.renderables.removeIf(TradeScreen::isFtbSidebarObject);
+        } catch (Throwable ignored) {}
+    }
+
+    private static boolean isFtbSidebarObject(Object o) {
+        if (o == null) return false;
+        String n = o.getClass().getName();
+        String l = n.toLowerCase(java.util.Locale.ROOT);
+        return n.startsWith("dev.ftb.")
+                || n.startsWith("com.feed_the_beast.")
+                || l.contains("ftblibrary")
+                || l.contains("ftbquests");
+    }
+
 }

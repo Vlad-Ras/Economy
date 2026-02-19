@@ -2,12 +2,18 @@ package com.roften.avilixeconomy;
 
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
+import com.roften.avilixeconomy.config.AvilixEconomyCommonConfig;
+import com.roften.avilixeconomy.database.DatabaseManager;
+import com.roften.avilixeconomy.pricing.MinPriceManager;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.commands.arguments.ResourceLocationArgument;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 
@@ -24,263 +30,466 @@ public class EconomyCommands {
         return builder.buildFuture();
     };
 
-    public static void register(RegisterCommandsEvent event) {
+    private static java.util.UUID getServerAccountUuid() {
+        try {
+            return java.util.UUID.fromString(AvilixEconomyCommonConfig.ECONOMY.serverAccountUuid.get());
+        } catch (Exception e) {
+            return java.util.UUID.fromString("00000000-0000-0000-0000-000000000000");
+        }
+    }
 
-        event.getDispatcher().register(
-                Commands.literal("eco")
+    private static String getServerAccountName() {
+        try {
+            return AvilixEconomyCommonConfig.ECONOMY.serverAccountName.get();
+        } catch (Exception e) {
+            return "SERVER";
+        }
+    }
 
-                        // ===== /eco balance =====
-                        .then(Commands.literal("balance")
-                                .executes(ctx -> {
-                                    ServerPlayer player = ctx.getSource().getPlayer();
-                                    double bal = EconomyData.getBalance(player.getUUID());
-                                    player.sendSystemMessage(Component.literal("Ваш баланс: " + MoneyUtils.formatSmart(bal)));
-                                    return Command.SINGLE_SUCCESS;
-                                })
-                                // ===== /eco balance <player> (admin) =====
-                                .then(Commands.argument("player", EntityArgument.player())
-                                        .requires(src -> src.hasPermission(2))
-                                        .executes(ctx -> {
-                                            ServerPlayer target = EntityArgument.getPlayer(ctx, "player");
-                                            double bal = EconomyData.getBalance(target.getUUID());
-                                            ctx.getSource().sendSuccess(
-                                                    () -> Component.literal("Баланс " + target.getGameProfile().getName() + ": " + MoneyUtils.formatSmart(bal)),
-                                                    false
-                                            );
-                                            return Command.SINGLE_SUCCESS;
-                                        })
-                                )
-                        )
+    /** Resolves online player UUID by name, otherwise tries DB lookup (offline). */
+    private static java.util.UUID resolveUuidByName(CommandSourceStack src, String name) {
+        if (name == null || name.isBlank()) return null;
+        ServerPlayer online = src.getServer().getPlayerList().getPlayerByName(name);
+        if (online != null) return online.getUUID();
+        return DatabaseManager.getUuidByName(name);
+    }
 
-                        // ===== /eco set <player> <amount> =====
-                        .then(Commands.literal("set")
-                                .requires(src -> src.hasPermission(2))
-                                .then(Commands.argument("player", StringArgumentType.word())
-                                        .suggests(PLAYER_SUGGESTIONS)
-                                        .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.0))
-                                                .executes(ctx -> {
-                                                    String name = StringArgumentType.getString(ctx, "player");
-                                                    double amount = DoubleArgumentType.getDouble(ctx, "amount"); amount = MoneyUtils.round2(amount);
+    
+public static void register(RegisterCommandsEvent event) {
 
-                                                    ServerPlayer target = ctx.getSource().getServer().getPlayerList().getPlayerByName(name);
-                                                    if (target == null) {
-                                                        ctx.getSource().sendSystemMessage(Component.literal("Игрок не найден"));
-                                                        return 0;
-                                                    }
+    event.getDispatcher().register(
+            Commands.literal("eco")
 
-                                                    EconomyData.setBalance(target.getUUID(), amount, name);
-                                                    ctx.getSource().sendSystemMessage(Component.literal("Баланс изменён на " + MoneyUtils.formatSmart(amount)));
-                                                    return Command.SINGLE_SUCCESS;
-                                                })
-                                        )
-                                )
-                        )
+                    // ===== /eco help =====
+                    .then(Commands.literal("help")
+                            .executes(ctx -> {
+                                ctx.getSource().sendSystemMessage(Component.translatable("msg.avilixeconomy.eco.help"));
+                                return Command.SINGLE_SUCCESS;
+                            })
+                    )
 
-                        // ===== /eco add <player> <amount> =====
-                        .then(Commands.literal("add")
-                                .requires(src -> src.hasPermission(2))
-                                .then(Commands.argument("player", StringArgumentType.word())
-                                        .suggests(PLAYER_SUGGESTIONS)
-                                        .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.01))
-                                                .executes(ctx -> {
-                                                    String name = StringArgumentType.getString(ctx, "player");
-                                                    double amount = DoubleArgumentType.getDouble(ctx, "amount"); amount = MoneyUtils.round2(amount);
+                    // ===== /eco balance =====
+                    .then(Commands.literal("balance")
+                            .executes(ctx -> {
+                                ServerPlayer player = ctx.getSource().getPlayer();
+                                double bal = EconomyData.getBalance(player.getUUID());
+                                player.sendSystemMessage(Component.literal("Ваш баланс: " + MoneyUtils.formatNoks(bal)));
+                                return Command.SINGLE_SUCCESS;
+                            })
+                    )
 
-                                                    ServerPlayer target = ctx.getSource().getServer().getPlayerList().getPlayerByName(name);
-                                                    if (target == null) {
-                                                        ctx.getSource().sendSystemMessage(Component.literal("Игрок не найден"));
-                                                        return 0;
-                                                    }
+                    // ===== /eco history [page] =====
+                    .then(Commands.literal("history")
+                            .executes(ctx -> showHistory(ctx.getSource(), null, 1))
+                            .then(Commands.argument("page", IntegerArgumentType.integer(1))
+                                    .executes(ctx -> showHistory(ctx.getSource(), null, IntegerArgumentType.getInteger(ctx, "page")))
+                            )
+                    )
 
-                                                    EconomyData.addBalance(target.getUUID(), amount);
-                                                    ctx.getSource().sendSystemMessage(Component.literal("Добавлено: " + MoneyUtils.formatSmart(amount)));
-                                                    return Command.SINGLE_SUCCESS;
-                                                })
-                                        )
-                                )
-                        )
+                    // ===== /eco top [page] =====
+                    .then(Commands.literal("top")
+                            .executes(ctx -> showTop(ctx.getSource(), 1))
+                            .then(Commands.argument("page", IntegerArgumentType.integer(1))
+                                    .executes(ctx -> showTop(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "page")))
+                            )
+                    )
 
-                        // ===== /eco remove <player> <amount> =====
-                        .then(Commands.literal("remove")
-                                .requires(src -> src.hasPermission(2))
-                                .then(Commands.argument("player", StringArgumentType.word())
-                                        .suggests(PLAYER_SUGGESTIONS)
-                                        .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.01))
-                                                .executes(ctx -> {
-                                                    String name = StringArgumentType.getString(ctx, "player");
-                                                    double amount = DoubleArgumentType.getDouble(ctx, "amount"); amount = MoneyUtils.round2(amount);
+                    // ===== /eco admin ... (all admin commands) =====
+                    .then(Commands.literal("admin")
+                            .requires(src -> src.hasPermission(2))
 
-                                                    ServerPlayer target = ctx.getSource().getServer().getPlayerList().getPlayerByName(name);
-                                                    if (target == null) {
-                                                        ctx.getSource().sendSystemMessage(Component.literal("Игрок не найден"));
-                                                        return 0;
-                                                    }
+                            // /eco admin balance <player>
+                            .then(Commands.literal("balance")
+                                    .then(Commands.argument("player", StringArgumentType.word())
+                                            .suggests(PLAYER_SUGGESTIONS)
+                                            .executes(ctx -> {
+                                                String name = StringArgumentType.getString(ctx, "player");
+                                                java.util.UUID uuid = resolveUuidByName(ctx.getSource(), name);
+                                                if (uuid == null) {
+                                                    ctx.getSource().sendSystemMessage(Component.literal("Игрок не найден (нет в онлайне и нет записи в БД)"));
+                                                    return 0;
+                                                }
+                                                double bal = EconomyData.getBalance(uuid);
+                                                ctx.getSource().sendSuccess(
+                                                        () -> Component.literal("Баланс " + name + ": " + MoneyUtils.formatNoks(bal)),
+                                                        false
+                                                );
+                                                return Command.SINGLE_SUCCESS;
+                                            })
+                                    )
+                            )
 
-                                                    EconomyData.removeBalance(target.getUUID(), amount);
-                                                    ctx.getSource().sendSystemMessage(Component.literal("Снято: " + MoneyUtils.formatSmart(amount)));
-                                                    return Command.SINGLE_SUCCESS;
-                                                })
-                                        )
-                                )
-                        )
+                            // /eco admin history <player> [page]
+                            .then(Commands.literal("history")
+                                    .then(Commands.argument("player", StringArgumentType.word())
+                                            .suggests(PLAYER_SUGGESTIONS)
+                                            .executes(ctx -> showHistory(ctx.getSource(), StringArgumentType.getString(ctx, "player"), 1))
+                                            .then(Commands.argument("page", IntegerArgumentType.integer(1))
+                                                    .executes(ctx -> showHistory(
+                                                            ctx.getSource(),
+                                                            StringArgumentType.getString(ctx, "player"),
+                                                            IntegerArgumentType.getInteger(ctx, "page")
+                                                    ))
+                                            )
+                                    )
+                            )
 
-                        // ===== /eco pay <player> <amount> =====
-                        .then(Commands.literal("pay")
-                                .then(Commands.argument("player", StringArgumentType.word())
-                                        .suggests(PLAYER_SUGGESTIONS)
-                                        .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.01))
-                                                .executes(ctx -> {
-                                                    ServerPlayer sender = ctx.getSource().getPlayer();
-                                                    String name = StringArgumentType.getString(ctx, "player");
-                                                    double amount = DoubleArgumentType.getDouble(ctx, "amount"); amount = MoneyUtils.round2(amount);
+                            // /eco admin server ...
+                            .then(Commands.literal("server")
+                                    .then(Commands.literal("balance")
+                                            .executes(ctx -> {
+                                                java.util.UUID su = getServerAccountUuid();
+                                                double bal = EconomyData.getBalance(su);
+                                                ctx.getSource().sendSuccess(() ->
+                                                        Component.literal("Серверный баланс (" + getServerAccountName() + "): " + MoneyUtils.formatNoks(bal)), false);
+                                                return Command.SINGLE_SUCCESS;
+                                            })
+                                    )
+                                    .then(Commands.literal("set")
+                                            .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.0))
+                                                    .executes(ctx -> {
+                                                        double amount = MoneyUtils.round2(DoubleArgumentType.getDouble(ctx, "amount"));
+                                                        java.util.UUID su = getServerAccountUuid();
+                                                        EconomyData.setBalance(su, amount, getServerAccountName());
+                                                        ctx.getSource().sendSuccess(() -> Component.literal("Серверный баланс установлен: " + MoneyUtils.formatNoks(amount)), true);
+                                                        return Command.SINGLE_SUCCESS;
+                                                    })
+                                            )
+                                    )
+                                    .then(Commands.literal("add")
+                                            .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.01))
+                                                    .executes(ctx -> {
+                                                        double amount = MoneyUtils.round2(DoubleArgumentType.getDouble(ctx, "amount"));
+                                                        java.util.UUID su = getServerAccountUuid();
+                                                        EconomyData.addBalance(su, amount);
+                                                        ctx.getSource().sendSuccess(() -> Component.literal("Добавлено серверу: " + MoneyUtils.formatNoks(amount)), true);
+                                                        return Command.SINGLE_SUCCESS;
+                                                    })
+                                            )
+                                    )
+                                    .then(Commands.literal("remove")
+                                            .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.01))
+                                                    .executes(ctx -> {
+                                                        double amount = MoneyUtils.round2(DoubleArgumentType.getDouble(ctx, "amount"));
+                                                        java.util.UUID su = getServerAccountUuid();
+                                                        EconomyData.removeBalance(su, amount);
+                                                        ctx.getSource().sendSuccess(() -> Component.literal("Снято с сервера: " + MoneyUtils.formatNoks(amount)), true);
+                                                        return Command.SINGLE_SUCCESS;
+                                                    })
+                                            )
+                                    )
+                            )
 
-                                                    ServerPlayer target = ctx.getSource().getServer().getPlayerList().getPlayerByName(name);
-                                                    if (target == null) {
-                                                        sender.sendSystemMessage(Component.literal("Игрок не найден"));
-                                                        return 0;
-                                                    }
+                            // /eco admin set|add|remove ...
+                            .then(Commands.literal("set")
+                                    .then(Commands.argument("player", StringArgumentType.word())
+                                            .suggests(PLAYER_SUGGESTIONS)
+                                            .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.0))
+                                                    .executes(ctx -> {
+                                                        String name = StringArgumentType.getString(ctx, "player");
+                                                        double amount = MoneyUtils.round2(DoubleArgumentType.getDouble(ctx, "amount"));
 
-                                                    // Сам себе платить нельзя
-                                                    if (sender.getUUID().equals(target.getUUID())) {
-                                                        sender.sendSystemMessage(Component.literal("Нельзя переводить деньги самому себе!"));
-                                                        return 0;
-                                                    }
+                                                        java.util.UUID uuid = resolveUuidByName(ctx.getSource(), name);
+                                                        if (uuid == null) {
+                                                            ctx.getSource().sendSystemMessage(Component.literal("Игрок не найден (нет в онлайне и нет записи в БД)"));
+                                                            return 0;
+                                                        }
 
-                                                    double bal = EconomyData.getBalance(sender.getUUID());
-                                                    if (bal + 1e-9 < amount) {
-                                                        sender.sendSystemMessage(Component.literal("Недостаточно средств!"));
-                                                        return 0;
-                                                    }
+                                                        EconomyData.setBalance(uuid, amount, name);
+                                                        ctx.getSource().sendSystemMessage(Component.literal("Баланс изменён на " + MoneyUtils.formatNoks(amount)));
+                                                        return Command.SINGLE_SUCCESS;
+                                                    })
+                                            )
+                                    )
+                            )
 
-                                                    EconomyData.removeBalance(sender.getUUID(), amount);
-                                                    EconomyData.addBalance(target.getUUID(), amount);
+                            .then(Commands.literal("add")
+                                    // /eco admin add all <amount>
+                                    .then(Commands.literal("all")
+                                            .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.01))
+                                                    .executes(ctx -> {
+                                                        double amount = MoneyUtils.round2(DoubleArgumentType.getDouble(ctx, "amount"));
+                                                        java.util.UUID serverUuid = getServerAccountUuid();
+                                                        int changed = DatabaseManager.addBalanceToAll(amount, serverUuid);
 
-                                                    sender.sendSystemMessage(Component.literal(
-                                                            "Вы отправили " + MoneyUtils.formatSmart(amount) + " игроку " + name));
+                                                        // refresh online players cache + send packets
+                                                        ctx.getSource().getServer().getPlayerList().getPlayers().forEach(p -> {
+                                                            try {
+                                                                EconomyData.getBalance(p.getUUID());
+                                                                EconomyData.sendBalanceUpdateToPlayer(p);
+                                                            } catch (Exception ignored) {}
+                                                        });
 
-                                                    target.sendSystemMessage(Component.literal(
-                                                            "Вы получили " + MoneyUtils.formatSmart(amount) + " от " + sender.getName().getString()));
+                                                        ctx.getSource().sendSuccess(() ->
+                                                                Component.literal("Добавлено всем игрокам: " + MoneyUtils.formatNoks(amount) + " (изменено записей: " + changed + ")"),
+                                                                true);
 
-                                                    return Command.SINGLE_SUCCESS;
-                                                })
-                                        )
-                                )
-                        )
-                        // ===== /eco commission ... =====
-                        .then(Commands.literal("commission")
-                                .requires(src -> src.hasPermission(2))
+                                                        // notify online players
+                                                        String actorName = ctx.getSource().getTextName();
+                                                        ctx.getSource().getServer().getPlayerList().getPlayers().forEach(p -> {
+                                                            p.sendSystemMessage(Component.translatable("msg.avilixeconomy.eco.added_to_you", MoneyUtils.formatNoks(amount), actorName));
+                                                        });
+                                                        return Command.SINGLE_SUCCESS;
+                                                    })
+                                            )
+                                    )
+                                    // /eco admin add <player> <amount>
+                                    .then(Commands.argument("player", StringArgumentType.word())
+                                            .suggests(PLAYER_SUGGESTIONS)
+                                            .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.01))
+                                                    .executes(ctx -> {
+                                                        String name = StringArgumentType.getString(ctx, "player");
+                                                        double amount = MoneyUtils.round2(DoubleArgumentType.getDouble(ctx, "amount"));
 
-                                // /eco commission get
-                                .then(Commands.literal("get")
-                                        .executes(ctx -> {
-                                            int sellBps = com.roften.avilixeconomy.config.AvilixEconomyCommonConfig.COMMISSION.defaultSellBps.get();
-                                            int buyBps = com.roften.avilixeconomy.config.AvilixEconomyCommonConfig.COMMISSION.defaultBuyBps.get();
-                                            ctx.getSource().sendSuccess(() ->
-                                                    Component.literal("Комиссия (глобальная): SELL=" + (sellBps / 100.0) + "%, BUY=" + (buyBps / 100.0) + "%"),
-                                                    false);
-                                            return Command.SINGLE_SUCCESS;
-                                        })
-                                )
+                                                        java.util.UUID uuid = resolveUuidByName(ctx.getSource(), name);
+                                                        if (uuid == null) {
+                                                            ctx.getSource().sendSystemMessage(Component.literal("Игрок не найден (нет в онлайне и нет записи в БД)"));
+                                                            return 0;
+                                                        }
 
-                                // /eco commission info <player>
-                                .then(Commands.literal("info")
-                                        .then(Commands.argument("player", EntityArgument.player())
-                                                .executes(ctx -> {
-                                                    ServerPlayer p = EntityArgument.getPlayer(ctx, "player");
-                                                    int sellBps = CommissionManager.getSellBpsForOwner(p.getUUID());
-                                                    int buyBps = CommissionManager.getBuyBpsForOwner(p.getUUID());
-                                                    ctx.getSource().sendSuccess(() ->
-                                                            Component.literal("Комиссия для " + p.getGameProfile().getName() + ": SELL=" + (sellBps / 100.0) + "%, BUY=" + (buyBps / 100.0) + "%"),
-                                                            false);
-                                                    return Command.SINGLE_SUCCESS;
-                                                })
-                                        )
-                                )
+                                                        EconomyData.addBalance(uuid, amount);
+                                                        ctx.getSource().sendSystemMessage(Component.literal("Добавлено: " + MoneyUtils.formatNoks(amount)));
 
-                                // /eco commission global ...
-                                .then(Commands.literal("global")
-                                        .then(Commands.literal("sell")
-                                                .then(Commands.argument("percent", DoubleArgumentType.doubleArg(0.0, 100.0))
-                                                        .executes(ctx -> {
-                                                            double pct = DoubleArgumentType.getDouble(ctx, "percent");
-                                                            int bps = (int) Math.round(pct * 100.0);
-                                                            CommissionManager.setGlobalSellBps(bps);
-                                                            ctx.getSource().sendSuccess(() ->
-                                                                    Component.literal("Глобальная комиссия SELL установлена: " + pct + "%"),
-                                                                    true);
-                                                            return Command.SINGLE_SUCCESS;
-                                                        })
-                                                )
-                                        )
-                                        .then(Commands.literal("buy")
-                                                .then(Commands.argument("percent", DoubleArgumentType.doubleArg(0.0, 100.0))
-                                                        .executes(ctx -> {
-                                                            double pct = DoubleArgumentType.getDouble(ctx, "percent");
-                                                            int bps = (int) Math.round(pct * 100.0);
-                                                            CommissionManager.setGlobalBuyBps(bps);
-                                                            ctx.getSource().sendSuccess(() ->
-                                                                    Component.literal("Глобальная комиссия BUY установлена: " + pct + "%"),
-                                                                    true);
-                                                            return Command.SINGLE_SUCCESS;
-                                                        })
-                                                )
-                                        )
-                                )
+                                                        // notify target player if online
+                                                        var target = ctx.getSource().getServer().getPlayerList().getPlayer(uuid);
+                                                        if (target != null) {
+                                                            String actorName = ctx.getSource().getTextName();
+                                                            target.sendSystemMessage(Component.translatable("msg.avilixeconomy.eco.added_to_you", MoneyUtils.formatNoks(amount), actorName));
+                                                        }
+                                                        return Command.SINGLE_SUCCESS;
+                                                    })
+                                            )
+                                    )
+                            )
 
-                                // /eco commission owner <player> ...
-                                .then(Commands.literal("owner")
-                                        .then(Commands.argument("player", EntityArgument.player())
-                                                .then(Commands.literal("sell")
-                                                        .then(Commands.argument("percent", DoubleArgumentType.doubleArg(0.0, 100.0))
-                                                                .executes(ctx -> {
-                                                                    ServerPlayer p = EntityArgument.getPlayer(ctx, "player");
-                                                                    double pct = DoubleArgumentType.getDouble(ctx, "percent");
-                                                                    int bps = (int) Math.round(pct * 100.0);
-                                                                    CommissionManager.setOwnerOverride(p.getUUID(), bps, null);
-                                                                    ctx.getSource().sendSuccess(() ->
-                                                                            Component.literal("Комиссия SELL для " + p.getGameProfile().getName() + " установлена: " + pct + "%"),
-                                                                            true);
-                                                                    return Command.SINGLE_SUCCESS;
-                                                                })
-                                                        )
-                                                )
-                                                .then(Commands.literal("buy")
-                                                        .then(Commands.argument("percent", DoubleArgumentType.doubleArg(0.0, 100.0))
-                                                                .executes(ctx -> {
-                                                                    ServerPlayer p = EntityArgument.getPlayer(ctx, "player");
-                                                                    double pct = DoubleArgumentType.getDouble(ctx, "percent");
-                                                                    int bps = (int) Math.round(pct * 100.0);
-                                                                    CommissionManager.setOwnerOverride(p.getUUID(), null, bps);
-                                                                    ctx.getSource().sendSuccess(() ->
-                                                                            Component.literal("Комиссия BUY для " + p.getGameProfile().getName() + " установлена: " + pct + "%"),
-                                                                            true);
-                                                                    return Command.SINGLE_SUCCESS;
-                                                                })
-                                                        )
-                                                )
-                                        )
-                                )
+                            .then(Commands.literal("remove")
+                                    .then(Commands.argument("player", StringArgumentType.word())
+                                            .suggests(PLAYER_SUGGESTIONS)
+                                            .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.01))
+                                                    .executes(ctx -> {
+                                                        String name = StringArgumentType.getString(ctx, "player");
+                                                        double amount = MoneyUtils.round2(DoubleArgumentType.getDouble(ctx, "amount"));
 
-                                // /eco commission clear <player>
-                                .then(Commands.literal("clear")
-                                        .then(Commands.argument("player", EntityArgument.player())
-                                                .executes(ctx -> {
-                                                    ServerPlayer p = EntityArgument.getPlayer(ctx, "player");
-                                                    boolean removed = CommissionManager.clearOwnerOverride(p.getUUID());
-                                                    ctx.getSource().sendSuccess(() ->
-                                                            Component.literal(removed
-                                                                    ? ("Оверрайд комиссии для " + p.getGameProfile().getName() + " удалён.")
-                                                                    : ("Оверрайда комиссии для " + p.getGameProfile().getName() + " не было.")),
-                                                            true);
-                                                    return Command.SINGLE_SUCCESS;
-                                                })
-                                        )
-                                )
-                        )
+                                                        java.util.UUID uuid = resolveUuidByName(ctx.getSource(), name);
+                                                        if (uuid == null) {
+                                                            ctx.getSource().sendSystemMessage(Component.literal("Игрок не найден (нет в онлайне и нет записи в БД)"));
+                                                            return 0;
+                                                        }
 
-        );
+                                                        EconomyData.removeBalance(uuid, amount);
+                                                        ctx.getSource().sendSystemMessage(Component.literal("Снято: " + MoneyUtils.formatNoks(amount)));
+                                                        return Command.SINGLE_SUCCESS;
+                                                    })
+                                            )
+                                    )
+                            )
 
-        // =============================
+                            // /eco admin commission ...
+                            .then(Commands.literal("commission")
+                                    .then(Commands.literal("global")
+                                            .then(Commands.literal("sell")
+                                                    .then(Commands.argument("percent", DoubleArgumentType.doubleArg(0.0, 100.0))
+                                                            .executes(ctx -> {
+                                                                double pct = DoubleArgumentType.getDouble(ctx, "percent");
+                                                                int bps = (int) Math.round(pct * 100.0);
+                                                                CommissionManager.setGlobalSellBps(bps);
+                                                                ctx.getSource().sendSuccess(() ->
+                                                                        Component.literal("Глобальная комиссия SELL установлена: " + pct + "%"),
+                                                                        true);
+                                                                return Command.SINGLE_SUCCESS;
+                                                            })
+                                                    )
+                                            )
+                                            .then(Commands.literal("buy")
+                                                    .then(Commands.argument("percent", DoubleArgumentType.doubleArg(0.0, 100.0))
+                                                            .executes(ctx -> {
+                                                                double pct = DoubleArgumentType.getDouble(ctx, "percent");
+                                                                int bps = (int) Math.round(pct * 100.0);
+                                                                CommissionManager.setGlobalBuyBps(bps);
+                                                                ctx.getSource().sendSuccess(() ->
+                                                                        Component.literal("Глобальная комиссия BUY установлена: " + pct + "%"),
+                                                                        true);
+                                                                return Command.SINGLE_SUCCESS;
+                                                            })
+                                                    )
+                                            )
+                                    )
+                                    .then(Commands.literal("owner")
+                                            .then(Commands.argument("player", StringArgumentType.word())
+                                                    .suggests(PLAYER_SUGGESTIONS)
+                                                    .then(Commands.literal("sell")
+                                                            .then(Commands.argument("percent", DoubleArgumentType.doubleArg(0.0, 100.0))
+                                                                    .executes(ctx -> {
+                                                                        String name = StringArgumentType.getString(ctx, "player");
+                                                                        java.util.UUID uuid = resolveUuidByName(ctx.getSource(), name);
+                                                                        if (uuid == null) {
+                                                                            ctx.getSource().sendSystemMessage(Component.literal("Игрок не найден (нет в онлайне и нет записи в БД)"));
+                                                                            return 0;
+                                                                        }
+                                                                        double pct = DoubleArgumentType.getDouble(ctx, "percent");
+                                                                        int bps = (int) Math.round(pct * 100.0);
+                                                                        CommissionManager.setOwnerOverride(uuid, bps, null);
+                                                                        ctx.getSource().sendSuccess(() ->
+                                                                                Component.literal("Комиссия SELL для " + name + " установлена: " + pct + "%"),
+                                                                                true);
+                                                                        return Command.SINGLE_SUCCESS;
+                                                                    })
+                                                            )
+                                                    )
+                                                    .then(Commands.literal("buy")
+                                                            .then(Commands.argument("percent", DoubleArgumentType.doubleArg(0.0, 100.0))
+                                                                    .executes(ctx -> {
+                                                                        String name = StringArgumentType.getString(ctx, "player");
+                                                                        java.util.UUID uuid = resolveUuidByName(ctx.getSource(), name);
+                                                                        if (uuid == null) {
+                                                                            ctx.getSource().sendSystemMessage(Component.literal("Игрок не найден (нет в онлайне и нет записи в БД)"));
+                                                                            return 0;
+                                                                        }
+                                                                        double pct = DoubleArgumentType.getDouble(ctx, "percent");
+                                                                        int bps = (int) Math.round(pct * 100.0);
+                                                                        CommissionManager.setOwnerOverride(uuid, null, bps);
+                                                                        ctx.getSource().sendSuccess(() ->
+                                                                                Component.literal("Комиссия BUY для " + name + " установлена: " + pct + "%"),
+                                                                                true);
+                                                                        return Command.SINGLE_SUCCESS;
+                                                                    })
+                                                            )
+                                                    )
+                                            )
+                                    )
+                                    .then(Commands.literal("clear")
+                                            .then(Commands.argument("player", StringArgumentType.word())
+                                                    .suggests(PLAYER_SUGGESTIONS)
+                                                    .executes(ctx -> {
+                                                        String name = StringArgumentType.getString(ctx, "player");
+                                                        java.util.UUID uuid = resolveUuidByName(ctx.getSource(), name);
+                                                        if (uuid == null) {
+                                                            ctx.getSource().sendSystemMessage(Component.literal("Игрок не найден (нет в онлайне и нет записи в БД)"));
+                                                            return 0;
+                                                        }
+                                                        boolean removed = CommissionManager.clearOwnerOverride(uuid);
+                                                        ctx.getSource().sendSuccess(() ->
+                                                                Component.literal(removed
+                                                                        ? ("Оверрайд комиссии для " + name + " удалён.")
+                                                                        : ("Оверрайда комиссии для " + name + " не было.")),
+                                                                true);
+                                                        return Command.SINGLE_SUCCESS;
+                                                    })
+                                            )
+                                    )
+                            )
+
+                            // /eco admin minprice ...
+                            .then(Commands.literal("minprice")
+                                    .then(Commands.literal("reload")
+                                            .executes(ctx -> {
+                                                MinPriceManager.reload();
+                                                String err = MinPriceManager.getLastError();
+                                                if (err != null) {
+                                                    ctx.getSource().sendFailure(Component.translatable("msg.avilixeconomy.minprice.reload_fail", err));
+                                                    return 0;
+                                                }
+                                                ctx.getSource().sendSuccess(() -> Component.translatable("msg.avilixeconomy.minprice.reloaded"), false);
+                                                return Command.SINGLE_SUCCESS;
+                                            })
+                                    )
+                                    .then(Commands.literal("set")
+                                            .then(Commands.argument("item", ResourceLocationArgument.id())
+                                                    .then(Commands.argument("price", DoubleArgumentType.doubleArg(0))
+                                                            .executes(ctx -> {
+                                                                ResourceLocation id = ResourceLocationArgument.getId(ctx, "item");
+                                                                double price = DoubleArgumentType.getDouble(ctx, "price");
+                                                                try {
+                                                                    MinPriceManager.setMin(id, price);
+                                                                } catch (Exception ex) {
+                                                                    ctx.getSource().sendFailure(Component.translatable(
+                                                                            "msg.avilixeconomy.minprice.save_fail",
+                                                                            ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage()
+                                                                    ));
+                                                                    return 0;
+                                                                }
+                                                                ctx.getSource().sendSuccess(() ->
+                                                                        Component.translatable("msg.avilixeconomy.minprice.set_ok", id.toString(), MoneyUtils.formatNoks(price)),
+                                                                        false);
+                                                                return Command.SINGLE_SUCCESS;
+                                                            })
+                                                    )
+                                            )
+                                    )
+                                    // alias: add
+                                    .then(Commands.literal("add")
+                                            .then(Commands.argument("item", ResourceLocationArgument.id())
+                                                    .then(Commands.argument("price", DoubleArgumentType.doubleArg(0))
+                                                            .executes(ctx -> {
+                                                                ResourceLocation id = ResourceLocationArgument.getId(ctx, "item");
+                                                                double price = DoubleArgumentType.getDouble(ctx, "price");
+                                                                try {
+                                                                    MinPriceManager.setMin(id, price);
+                                                                } catch (Exception ex) {
+                                                                    ctx.getSource().sendFailure(Component.translatable(
+                                                                            "msg.avilixeconomy.minprice.save_fail",
+                                                                            ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage()
+                                                                    ));
+                                                                    return 0;
+                                                                }
+                                                                ctx.getSource().sendSuccess(() ->
+                                                                        Component.translatable("msg.avilixeconomy.minprice.set_ok", id.toString(), MoneyUtils.formatNoks(price)),
+                                                                        false);
+                                                                return Command.SINGLE_SUCCESS;
+                                                            })
+                                                    )
+                                            )
+                                    )
+                                    .then(Commands.literal("remove")
+                                            .then(Commands.argument("item", ResourceLocationArgument.id())
+                                                    .executes(ctx -> {
+                                                        String itemStr = StringArgumentType.getString(ctx, "item");
+                                                        ResourceLocation id = ResourceLocation.tryParse(itemStr);
+                                                        if (id == null) {
+                                                            ctx.getSource().sendFailure(Component.translatable("msg.avilixeconomy.minprice.bad_item", itemStr));
+                                                            return 0;
+                                                        }
+                                                        try {
+                                                            MinPriceManager.removeMin(id);
+                                                        } catch (Exception ex) {
+                                                            ctx.getSource().sendFailure(Component.translatable(
+                                                                    "msg.avilixeconomy.minprice.save_fail",
+                                                                    ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage()
+                                                            ));
+                                                            return 0;
+                                                        }
+                                                        ctx.getSource().sendSuccess(() -> Component.translatable("msg.avilixeconomy.minprice.remove_ok", id.toString()), false);
+                                                        return Command.SINGLE_SUCCESS;
+                                                    })
+                                            )
+                                    )
+                                    .then(Commands.literal("get")
+                                            .then(Commands.argument("item", ResourceLocationArgument.id())
+                                                    .executes(ctx -> {
+                                                        String itemStr = StringArgumentType.getString(ctx, "item");
+                                                        ResourceLocation id = ResourceLocation.tryParse(itemStr);
+                                                        if (id == null) {
+                                                            ctx.getSource().sendFailure(Component.translatable("msg.avilixeconomy.minprice.bad_item", itemStr));
+                                                            return 0;
+                                                        }
+                                                        double v = MinPriceManager.getMinPerItem(id);
+                                                        ctx.getSource().sendSuccess(() -> Component.translatable("msg.avilixeconomy.minprice.get_ok", id.toString(), MoneyUtils.formatNoks(v)), false);
+                                                        return Command.SINGLE_SUCCESS;
+                                                    })
+                                            )
+                                    )
+                                    .then(Commands.literal("list")
+                                            .executes(ctx -> showMinPriceList(ctx.getSource(), 1))
+                                            .then(Commands.argument("page", IntegerArgumentType.integer(1))
+                                                    .executes(ctx -> showMinPriceList(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "page")))
+                                            )
+                                    )
+                            )
+                    )
+    );
+
+
+// =============================
         // /trade - обмен предметами и валютой
         // =============================
         event.getDispatcher().register(
@@ -351,4 +560,171 @@ public class EconomyCommands {
                         )
         );
     }
+
+    private static int showTop(CommandSourceStack src, int page) {
+        final int perPage = 10;
+        int safePage = Math.max(1, page);
+        int offset = (safePage - 1) * perPage;
+
+        java.util.UUID serverUuid = getServerAccountUuid();
+        DatabaseManager.BalancesPage top = DatabaseManager.getBalancesTopPage(perPage, offset, serverUuid);
+
+        if (top.rows().isEmpty()) {
+            src.sendSystemMessage(Component.literal("Топ пуст."));
+            return Command.SINGLE_SUCCESS;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Топ по балансу (страница ").append(safePage).append("):\n");
+        for (int i = 0; i < top.rows().size(); i++) {
+            var row = top.rows().get(i);
+            int place = offset + i + 1;
+            sb.append(place)
+                    .append(". ")
+                    .append(row.name())
+                    .append(" — ")
+                    .append(MoneyUtils.formatNoks(row.balance()))
+                    .append("\n");
+        }
+        if (top.hasMore()) {
+            sb.append("\nЕсть следующая страница: /eco top ").append(safePage + 1);
+        }
+
+        src.sendSuccess(() -> Component.literal(sb.toString()), false);
+        return Command.SINGLE_SUCCESS;
+    }
+
+    
+private static int showMinPriceList(CommandSourceStack src, int page) {
+    final int perPage = 10;
+    int safePage = Math.max(1, page);
+    int offset = (safePage - 1) * perPage;
+
+    java.util.Map<ResourceLocation, Double> map = MinPriceManager.snapshot();
+    if (map.isEmpty()) {
+        src.sendSystemMessage(Component.translatable("msg.avilixeconomy.minprice.list_empty"));
+        return Command.SINGLE_SUCCESS;
+    }
+
+    java.util.List<java.util.Map.Entry<ResourceLocation, Double>> entries = new java.util.ArrayList<>(map.entrySet());
+    entries.sort(java.util.Comparator.comparing(e -> e.getKey().toString()));
+
+    int from = Math.min(offset, entries.size());
+    int to = Math.min(offset + perPage, entries.size());
+    java.util.List<java.util.Map.Entry<ResourceLocation, Double>> pageEntries = entries.subList(from, to);
+    boolean hasMore = to < entries.size();
+
+    StringBuilder sb = new StringBuilder();
+    sb.append(Component.translatable("msg.avilixeconomy.minprice.list_header", safePage).getString()).append("\n");
+    for (java.util.Map.Entry<ResourceLocation, Double> e : pageEntries) {
+        sb.append(" - ").append(e.getKey()).append(" = ").append(MoneyUtils.formatNoks(e.getValue())).append("\n");
+    }
+    if (hasMore) {
+        sb.append(Component.translatable("msg.avilixeconomy.minprice.list_more", safePage + 1).getString());
+    }
+    src.sendSystemMessage(Component.literal(sb.toString()));
+    return Command.SINGLE_SUCCESS;
+}
+
+
+private static int showHistory(CommandSourceStack src, String playerName, int page) {
+        final int perPage = 10;
+        int safePage = Math.max(1, page);
+        int offset = (safePage - 1) * perPage;
+
+        java.util.UUID uuid;
+        String displayName;
+        try {
+            if (playerName == null) {
+                ServerPlayer p = src.getPlayer();
+                uuid = p.getUUID();
+                displayName = p.getName().getString();
+            } else {
+                uuid = resolveUuidByName(src, playerName);
+                displayName = playerName;
+            }
+        } catch (Exception e) {
+            src.sendSystemMessage(Component.literal("Эта команда доступна только игроку: /eco history"));
+            return 0;
+        }
+
+        if (uuid == null) {
+            src.sendSystemMessage(Component.literal("Игрок не найден (нет в онлайне и нет записи в БД)"));
+            return 0;
+        }
+
+        // limit+1 to detect next page
+        java.util.List<DatabaseManager.BalanceHistoryRow> rows = DatabaseManager.getBalanceHistory(uuid, perPage + 1, offset);
+        boolean hasMore = rows.size() > perPage;
+        if (hasMore) rows = rows.subList(0, perPage);
+
+        if (rows.isEmpty()) {
+            src.sendSystemMessage(Component.translatable("msg.avilixeconomy.eco.history_empty", displayName));
+            return Command.SINGLE_SUCCESS;
+        }
+
+        java.time.format.DateTimeFormatter fmt = java.time.format.DateTimeFormatter.ofPattern("dd.MM HH:mm");
+
+        var out = Component.empty();
+        out = out.append(Component.literal("История баланса ").withStyle(net.minecraft.ChatFormatting.GOLD))
+                .append(Component.literal(displayName).withStyle(net.minecraft.ChatFormatting.YELLOW))
+                .append(Component.literal(" • стр. " + safePage).withStyle(net.minecraft.ChatFormatting.DARK_GRAY));
+
+        for (var r : rows) {
+            String time = "?";
+            try {
+                time = r.createdAt().toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDateTime().format(fmt);
+            } catch (Exception ignored) {}
+
+            var deltaStr = MoneyUtils.formatNoksSigned(r.delta());
+            var deltaComp = Component.literal(deltaStr).withStyle(r.delta() >= 0
+                    ? net.minecraft.ChatFormatting.GREEN
+                    : net.minecraft.ChatFormatting.RED);
+
+            var beforeAfter = Component.literal(MoneyUtils.formatNoks(r.balanceBefore()) + " → " + MoneyUtils.formatNoks(r.balanceAfter()))
+                    .withStyle(net.minecraft.ChatFormatting.GRAY);
+
+            var reason = formatHistoryReason(r.reason());
+
+            out = out.append(Component.literal("\n"))
+                    .append(Component.literal("[" + time + "] ").withStyle(net.minecraft.ChatFormatting.DARK_GRAY))
+                    .append(deltaComp)
+                    .append(Component.literal("  ").withStyle(net.minecraft.ChatFormatting.DARK_GRAY))
+                    .append(beforeAfter)
+                    .append(Component.literal("  ").withStyle(net.minecraft.ChatFormatting.DARK_GRAY))
+                    .append(reason);
+
+            if (r.actorName() != null && !r.actorName().isBlank()) {
+                out = out.append(Component.literal("  (" + r.actorName() + ")").withStyle(net.minecraft.ChatFormatting.AQUA));
+            }
+        }
+
+        if (hasMore) {
+            StringBuilder next = new StringBuilder();
+            next.append("\n\nСледующая страница: /eco history ");
+            if (playerName != null) next.append(playerName).append(' ');
+            next.append(safePage + 1);
+            out = out.append(Component.literal(next.toString()).withStyle(net.minecraft.ChatFormatting.DARK_GRAY));
+        }
+
+        final Component outFinal = out;
+        src.sendSuccess(() -> outFinal, false);
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private static Component formatHistoryReason(String reason) {
+        if (reason == null) reason = "";
+        String r = reason.trim().toUpperCase(java.util.Locale.ROOT);
+        return switch (r) {
+            case "SET" -> Component.literal("Установка баланса").withStyle(net.minecraft.ChatFormatting.WHITE);
+            case "ADD" -> Component.literal("Начисление").withStyle(net.minecraft.ChatFormatting.WHITE);
+            case "REMOVE" -> Component.literal("Списание").withStyle(net.minecraft.ChatFormatting.WHITE);
+            case "PAY_OUT" -> Component.literal("Перевод: исходящий").withStyle(net.minecraft.ChatFormatting.WHITE);
+            case "PAY_IN" -> Component.literal("Перевод: входящий").withStyle(net.minecraft.ChatFormatting.WHITE);
+            case "PAY_SPLIT_OUT" -> Component.literal("Платёж (комиссия): списание").withStyle(net.minecraft.ChatFormatting.WHITE);
+            case "PAY_SPLIT_IN" -> Component.literal("Платёж (комиссия): начисление").withStyle(net.minecraft.ChatFormatting.WHITE);
+            default -> Component.literal(reason.isBlank() ? "Неизвестно" : reason).withStyle(net.minecraft.ChatFormatting.WHITE);
+        };
+    }
+
 }
