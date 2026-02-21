@@ -17,6 +17,7 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
@@ -63,6 +64,19 @@ public class AvilixEconomy {
 
         // -------- NETWORK --------
         modBus.addListener(NetworkRegistration::register);
+
+        // -------- OPTIONAL COMPAT --------
+        // FTB Quests native reward type ("Nox Reward")
+        if (ModList.get().isLoaded("ftbquests")) {
+            try {
+                Class.forName("com.roften.avilixeconomy.compat.ftbquests.FTBQuestsCompat")
+                        .getMethod("init")
+                        .invoke(null);
+                LOGGER.info("FTB Quests detected: Nox Reward registered");
+            } catch (Throwable t) {
+                LOGGER.warn("FTB Quests detected, but failed to register Nox Reward", t);
+            }
+        }
     }
 
     private void registerCapabilities(RegisterCapabilitiesEvent event) {

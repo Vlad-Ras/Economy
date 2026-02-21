@@ -343,5 +343,7 @@
   "guide.avilixeconomy.shopbook.e.safety.p1": "Всегда смотри итоговую цену перед кнопкой подтверждения. Не торопись.",
   "guide.avilixeconomy.shopbook.e.safety.p2": "Если магазин выглядит подозрительно (непонятные лоты/мелкий текст/обманные товары) — лучше отказаться.",
   "screen.avilixeconomy.shop.price_per_item_value": "Цена за 1шт: %s",
-  "screen.avilixeconomy.shop.price_slot_value": "Цена слота: %s (x%s)"
+  "screen.avilixeconomy.shop.price_slot_value": "Цена слота: %s (x%s)",
+
+  "ftbquests.reward.avilixeconomy.nox": "Награда: Ноксы"
 }

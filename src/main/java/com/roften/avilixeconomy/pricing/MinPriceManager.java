@@ -7,7 +7,10 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.roften.avilixeconomy.AvilixEconomy;
 import com.roften.avilixeconomy.util.MoneyUtils;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.TagKey;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.fml.loading.FMLPaths;
 import net.neoforged.neoforge.items.ItemStackHandler;
@@ -35,6 +38,11 @@ public final class MinPriceManager {
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final ConcurrentHashMap<ResourceLocation, Double> MIN = new ConcurrentHashMap<>();
+    /**
+     * Tag-based min price floor per item.
+     * JSON key format: "#namespace:tag" (example: "#minecraft:planks")
+     */
+    private static final ConcurrentHashMap<ResourceLocation, Double> TAG_MIN = new ConcurrentHashMap<>();
 
     private static volatile String lastError = null;
 
@@ -47,6 +55,7 @@ public final class MinPriceManager {
     public static void reload() {
         lastError = null;
         MIN.clear();
+        TAG_MIN.clear();
 
         Path file = getFilePath();
         try {
@@ -78,15 +87,19 @@ public final class MinPriceManager {
                 double v = MoneyUtils.round2(e.getValue().getAsDouble());
                 if (v < 0) v = 0;
 
+                boolean isTag = key.startsWith("#");
+                String rawId = isTag ? key.substring(1) : key;
+
                 ResourceLocation id;
                 try {
-                    id = ResourceLocation.tryParse(key);
+                    id = ResourceLocation.tryParse(rawId);
                 } catch (Throwable t) {
                     id = null;
                 }
                 if (id == null) continue;
 
-                MIN.put(id, v);
+                if (isTag) TAG_MIN.put(id, v);
+                else MIN.put(id, v);
             }
 
         } catch (Exception ex) {
@@ -103,16 +116,61 @@ public final class MinPriceManager {
         return Collections.unmodifiableMap(MIN);
     }
 
+    public static Map<ResourceLocation, Double> snapshotTags() {
+        return Collections.unmodifiableMap(TAG_MIN);
+    }
+
     public static double getMinPerItem(ResourceLocation itemId) {
         if (itemId == null) return 0.0;
         Double v = MIN.get(itemId);
         return v == null ? 0.0 : v;
     }
 
+    /**
+     * Returns per-item min price for a stack based on:
+     * 1) explicit item entry (minecraft:diamond)
+     * 2) tag entry (#minecraft:planks) if no explicit item entry exists
+     * If multiple tag rules match, the maximum value is used.
+     */
+    public static double getMinPerItem(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return 0.0;
+        ResourceLocation itemId = stack.getItem().builtInRegistryHolder().key().location();
+
+        Double direct = MIN.get(itemId);
+        if (direct != null) return direct;
+
+        if (TAG_MIN.isEmpty()) return 0.0;
+
+        double best = 0.0;
+        var holder = stack.getItem().builtInRegistryHolder();
+        // Some mods (Create included) define certain groupings as *block* tags, not item tags.
+        // Example: #create:seats is commonly a BLOCK tag.
+        //
+        // To make min_prices.json intuitive, we treat "#namespace:tag" as "match ITEM tag OR BLOCK tag".
+        var asBlock = (stack.getItem() instanceof BlockItem bi) ? bi.getBlock().builtInRegistryHolder() : null;
+        for (Map.Entry<ResourceLocation, Double> e : TAG_MIN.entrySet()) {
+            if (e.getValue() == null) continue;
+            ResourceLocation tagId = e.getKey();
+
+            TagKey<net.minecraft.world.item.Item> itemTag = TagKey.create(Registries.ITEM, tagId);
+            boolean match = holder.is(itemTag);
+
+            if (!match && asBlock != null) {
+                TagKey<net.minecraft.world.level.block.Block> blockTag = TagKey.create(Registries.BLOCK, tagId);
+                match = asBlock.is(blockTag);
+            }
+
+            if (match) {
+                double v = e.getValue();
+                if (v > best) best = v;
+            }
+        }
+        return best;
+    }
+
     public static double getMinForStack(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return 0.0;
-        ResourceLocation id = stack.getItem().builtInRegistryHolder().key().location();
-        double per = getMinPerItem(id);
+        double per = getMinPerItem(stack);
         if (per <= 0) return 0.0;
         // IMPORTANT: min price is configured per 1 item, so the floor for a stack is perItem * count.
         int count = Math.max(1, stack.getCount());
@@ -155,9 +213,22 @@ public final class MinPriceManager {
         save();
     }
 
+    public static void setMinTag(ResourceLocation tagId, double value) throws IOException {
+        if (tagId == null) return;
+        double v = MoneyUtils.round2(Math.max(0.0, value));
+        TAG_MIN.put(tagId, v);
+        save();
+    }
+
     public static void removeMin(ResourceLocation itemId) throws IOException {
         if (itemId == null) return;
         MIN.remove(itemId);
+        save();
+    }
+
+    public static void removeMinTag(ResourceLocation tagId) throws IOException {
+        if (tagId == null) return;
+        TAG_MIN.remove(tagId);
         save();
     }
 
@@ -166,9 +237,16 @@ public final class MinPriceManager {
         Files.createDirectories(file.getParent());
 
         JsonObject obj = new JsonObject();
+
+        // Items first
         MIN.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey((a, b) -> a.toString().compareToIgnoreCase(b.toString())))
                 .forEach(e -> obj.addProperty(e.getKey().toString(), MoneyUtils.round2(e.getValue())));
+
+        // Tags with leading '#'
+        TAG_MIN.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey((a, b) -> a.toString().compareToIgnoreCase(b.toString())))
+                .forEach(e -> obj.addProperty("#" + e.getKey().toString(), MoneyUtils.round2(e.getValue())));
 
         Files.writeString(file, GSON.toJson(obj) + "\n", StandardCharsets.UTF_8);
     }

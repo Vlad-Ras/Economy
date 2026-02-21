@@ -22,12 +22,20 @@ repositories {
     mavenCentral()
     // JEI (optional)
     maven { url = "https://maven.blamejared.com" }
-
+    maven { url = "https://maven.architectury.dev/" }
     // Jade (optional, compileOnly)
     maven {
         url "https://www.cursemaven.com"
         content {
             includeGroup "curse.maven"
+        }
+    }
+
+    // FTB mods (FTB Quests optional integration)
+    maven {
+        url "https://maven.ftb.dev/releases"
+        content {
+            includeGroup "dev.ftb.mods"
         }
     }
 }
@@ -137,6 +145,10 @@ dependencies {
     // Optional Jade integration (no hard dependency)
     // CurseMaven file id for a NeoForge 1.21.1 Jade jar.
     compileOnly "curse.maven:jade-324717:7428884"
+
+    // Optional FTB Quests integration (native reward type)
+    compileOnly "dev.ftb.mods:ftb-quests-neoforge:2101.1.21"
+    localRuntime "dev.ftb.mods:ftb-quests-neoforge:2101.1.21"
 
     // Example mod dependency using a mod jar from ./libs with a flat dir repository
     // This maps to ./libs/coolmod-${mc_version}-${coolmod_version}.jar

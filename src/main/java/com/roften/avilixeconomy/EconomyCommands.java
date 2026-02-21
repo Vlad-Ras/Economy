@@ -30,6 +30,31 @@ public class EconomyCommands {
         return builder.buildFuture();
     };
 
+    /**
+     * Vanilla-like @p: nearest online player to the command source position.
+     * If the source is a player, it will normally pick the source player (distance 0).
+     */
+    private static ServerPlayer selectNearestPlayer(CommandSourceStack source) {
+        var players = source.getServer().getPlayerList().getPlayers();
+        if (players.isEmpty()) return null;
+
+        var origin = source.getPosition();
+        ServerPlayer best = null;
+        double bestDist2 = Double.MAX_VALUE;
+
+        for (var p : players) {
+            double dx = p.getX() - origin.x;
+            double dy = p.getY() - origin.y;
+            double dz = p.getZ() - origin.z;
+            double d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 < bestDist2) {
+                bestDist2 = d2;
+                best = p;
+            }
+        }
+        return best;
+    }
+
     private static java.util.UUID getServerAccountUuid() {
         try {
             return java.util.UUID.fromString(AvilixEconomyCommonConfig.ECONOMY.serverAccountUuid.get());
@@ -182,6 +207,82 @@ public static void register(RegisterCommandsEvent event) {
 
                             // /eco admin set|add|remove ...
                             .then(Commands.literal("set")
+                                    // /eco admin set all <amount>  (offline included)
+                                    .then(Commands.literal("all")
+                                            .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.0))
+                                                    .executes(ctx -> {
+                                                        double amount = MoneyUtils.round2(DoubleArgumentType.getDouble(ctx, "amount"));
+                                                        java.util.UUID serverUuid = getServerAccountUuid();
+                                                        int changed = DatabaseManager.setBalanceForAll(amount, serverUuid);
+
+                                                        // refresh online players cache + send packets
+                                                        ctx.getSource().getServer().getPlayerList().getPlayers().forEach(p -> {
+                                                            try {
+                                                                EconomyData.getBalance(p.getUUID());
+                                                                EconomyData.sendBalanceUpdateToPlayer(p);
+                                                            } catch (Exception ignored) {}
+                                                        });
+
+                                                        ctx.getSource().sendSuccess(() ->
+                                                                        Component.literal("Баланс установлен всем игрокам: " + MoneyUtils.formatNoks(amount) + " (изменено записей: " + changed + ")"),
+                                                                true);
+
+                                                        String actorName = ctx.getSource().getTextName();
+                                                        ctx.getSource().getServer().getPlayerList().getPlayers().forEach(p -> {
+                                                            p.sendSystemMessage(Component.literal("Ваш баланс установлен на " + MoneyUtils.formatNoks(amount) + " (админ: " + actorName + ")"));
+                                                        });
+                                                        return Command.SINGLE_SUCCESS;
+                                                    })
+                                            )
+                                    )
+                                    // /eco admin set @a <amount>  (online only)
+                                    .then(Commands.literal("@a")
+                                            .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.0))
+                                                    .executes(ctx -> {
+                                                        double amount = MoneyUtils.round2(DoubleArgumentType.getDouble(ctx, "amount"));
+                                                        var players = ctx.getSource().getServer().getPlayerList().getPlayers();
+
+                                                        for (var p : players) {
+                                                            EconomyData.setBalance(p.getUUID(), amount, p.getName().getString());
+                                                            EconomyData.sendBalanceUpdateToPlayer(p);
+                                                        }
+
+                                                        ctx.getSource().sendSuccess(() ->
+                                                                        Component.literal("Баланс установлен игрокам онлайн: " + MoneyUtils.formatNoks(amount) + " (игроков: " + players.size() + ")"),
+                                                                true);
+
+                                                        String actorName = ctx.getSource().getTextName();
+                                                        for (var p : players) {
+                                                            p.sendSystemMessage(Component.literal("Ваш баланс установлен на " + MoneyUtils.formatNoks(amount) + " (админ: " + actorName + ")"));
+                                                        }
+                                                        return Command.SINGLE_SUCCESS;
+                                                    })
+                                            )
+                                    )
+                                    // /eco admin set @p <amount>  (nearest online)
+                                    .then(Commands.literal("@p")
+                                            .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.0))
+                                                    .executes(ctx -> {
+                                                        double amount = MoneyUtils.round2(DoubleArgumentType.getDouble(ctx, "amount"));
+                                                        ServerPlayer p = selectNearestPlayer(ctx.getSource());
+                                                        if (p == null) {
+                                                            ctx.getSource().sendFailure(Component.literal("Нет игроков онлайн."));
+                                                            return 0;
+                                                        }
+
+                                                        EconomyData.setBalance(p.getUUID(), amount, p.getName().getString());
+                                                        EconomyData.sendBalanceUpdateToPlayer(p);
+
+                                                        ctx.getSource().sendSuccess(() ->
+                                                                        Component.literal("Баланс установлен игроку @p (" + p.getName().getString() + "): " + MoneyUtils.formatNoks(amount)),
+                                                                true);
+
+                                                        String actorName = ctx.getSource().getTextName();
+                                                        p.sendSystemMessage(Component.literal("Ваш баланс установлен на " + MoneyUtils.formatNoks(amount) + " (админ: " + actorName + ")"));
+                                                        return Command.SINGLE_SUCCESS;
+                                                    })
+                                            )
+                                    )
                                     .then(Commands.argument("player", StringArgumentType.word())
                                             .suggests(PLAYER_SUGGESTIONS)
                                             .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.0))
@@ -233,6 +334,54 @@ public static void register(RegisterCommandsEvent event) {
                                                     })
                                             )
                                     )
+                                    // /eco admin add @a <amount> (online only)
+                                    .then(Commands.literal("@a")
+                                            .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.01))
+                                                    .executes(ctx -> {
+                                                        double amount = MoneyUtils.round2(DoubleArgumentType.getDouble(ctx, "amount"));
+                                                        var players = ctx.getSource().getServer().getPlayerList().getPlayers();
+
+                                                        for (var p : players) {
+                                                            EconomyData.addBalance(p.getUUID(), amount);
+                                                            EconomyData.sendBalanceUpdateToPlayer(p);
+                                                        }
+
+                                                        ctx.getSource().sendSuccess(() ->
+                                                                        Component.literal("Добавлено игрокам онлайн: " + MoneyUtils.formatNoks(amount) + " (игроков: " + players.size() + ")"),
+                                                                true);
+
+                                                        String actorName = ctx.getSource().getTextName();
+                                                        for (var p : players) {
+                                                            p.sendSystemMessage(Component.translatable("msg.avilixeconomy.eco.added_to_you", MoneyUtils.formatNoks(amount), actorName));
+                                                        }
+                                                        return Command.SINGLE_SUCCESS;
+                                                    })
+                                            )
+                                    )
+                                    // /eco admin add @p <amount> (nearest online)
+                                    .then(Commands.literal("@p")
+                                            .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.01))
+                                                    .executes(ctx -> {
+                                                        double amount = MoneyUtils.round2(DoubleArgumentType.getDouble(ctx, "amount"));
+                                                        ServerPlayer p = selectNearestPlayer(ctx.getSource());
+                                                        if (p == null) {
+                                                            ctx.getSource().sendFailure(Component.literal("Нет игроков онлайн."));
+                                                            return 0;
+                                                        }
+
+                                                        EconomyData.addBalance(p.getUUID(), amount);
+                                                        EconomyData.sendBalanceUpdateToPlayer(p);
+
+                                                        ctx.getSource().sendSuccess(() ->
+                                                                        Component.literal("Добавлено игроку @p (" + p.getName().getString() + "): " + MoneyUtils.formatNoks(amount)),
+                                                                true);
+
+                                                        String actorName = ctx.getSource().getTextName();
+                                                        p.sendSystemMessage(Component.translatable("msg.avilixeconomy.eco.added_to_you", MoneyUtils.formatNoks(amount), actorName));
+                                                        return Command.SINGLE_SUCCESS;
+                                                    })
+                                            )
+                                    )
                                     // /eco admin add <player> <amount>
                                     .then(Commands.argument("player", StringArgumentType.word())
                                             .suggests(PLAYER_SUGGESTIONS)
@@ -263,6 +412,69 @@ public static void register(RegisterCommandsEvent event) {
                             )
 
                             .then(Commands.literal("remove")
+                                    // /eco admin remove all <amount> (offline included)
+                                    .then(Commands.literal("all")
+                                            .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.01))
+                                                    .executes(ctx -> {
+                                                        double amount = MoneyUtils.round2(DoubleArgumentType.getDouble(ctx, "amount"));
+                                                        java.util.UUID serverUuid = getServerAccountUuid();
+                                                        int changed = DatabaseManager.removeBalanceFromAll(amount, serverUuid);
+
+                                                        // refresh online players cache + send packets
+                                                        ctx.getSource().getServer().getPlayerList().getPlayers().forEach(p -> {
+                                                            try {
+                                                                EconomyData.getBalance(p.getUUID());
+                                                                EconomyData.sendBalanceUpdateToPlayer(p);
+                                                            } catch (Exception ignored) {}
+                                                        });
+
+                                                        ctx.getSource().sendSuccess(() ->
+                                                                        Component.literal("Снято у всех игроков: " + MoneyUtils.formatNoks(amount) + " (изменено записей: " + changed + ")"),
+                                                                true);
+                                                        return Command.SINGLE_SUCCESS;
+                                                    })
+                                            )
+                                    )
+                                    // /eco admin remove @a <amount> (online only)
+                                    .then(Commands.literal("@a")
+                                            .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.01))
+                                                    .executes(ctx -> {
+                                                        double amount = MoneyUtils.round2(DoubleArgumentType.getDouble(ctx, "amount"));
+                                                        var players = ctx.getSource().getServer().getPlayerList().getPlayers();
+
+                                                        for (var p : players) {
+                                                            EconomyData.removeBalance(p.getUUID(), amount);
+                                                            EconomyData.sendBalanceUpdateToPlayer(p);
+                                                        }
+
+                                                        ctx.getSource().sendSuccess(() ->
+                                                                        Component.literal("Снято у игроков онлайн: " + MoneyUtils.formatNoks(amount) + " (игроков: " + players.size() + ")"),
+                                                                true);
+                                                        return Command.SINGLE_SUCCESS;
+                                                    })
+                                            )
+                                    )
+                                    // /eco admin remove @p <amount> (nearest online)
+                                    .then(Commands.literal("@p")
+                                            .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.01))
+                                                    .executes(ctx -> {
+                                                        double amount = MoneyUtils.round2(DoubleArgumentType.getDouble(ctx, "amount"));
+                                                        ServerPlayer p = selectNearestPlayer(ctx.getSource());
+                                                        if (p == null) {
+                                                            ctx.getSource().sendFailure(Component.literal("Нет игроков онлайн."));
+                                                            return 0;
+                                                        }
+
+                                                        EconomyData.removeBalance(p.getUUID(), amount);
+                                                        EconomyData.sendBalanceUpdateToPlayer(p);
+
+                                                        ctx.getSource().sendSuccess(() ->
+                                                                        Component.literal("Снято у игрока @p (" + p.getName().getString() + "): " + MoneyUtils.formatNoks(amount)),
+                                                                true);
+                                                        return Command.SINGLE_SUCCESS;
+                                                    })
+                                            )
+                                    )
                                     .then(Commands.argument("player", StringArgumentType.word())
                                             .suggests(PLAYER_SUGGESTIONS)
                                             .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.01))
@@ -487,7 +699,6 @@ public static void register(RegisterCommandsEvent event) {
                             )
                     )
     );
-
 
 // =============================
         // /trade - обмен предметами и валютой
@@ -719,6 +930,7 @@ private static int showHistory(CommandSourceStack src, String playerName, int pa
             case "SET" -> Component.literal("Установка баланса").withStyle(net.minecraft.ChatFormatting.WHITE);
             case "ADD" -> Component.literal("Начисление").withStyle(net.minecraft.ChatFormatting.WHITE);
             case "REMOVE" -> Component.literal("Списание").withStyle(net.minecraft.ChatFormatting.WHITE);
+            case "QUEST_REWARD" -> Component.literal("Награда за квест").withStyle(net.minecraft.ChatFormatting.WHITE);
             case "PAY_OUT" -> Component.literal("Перевод: исходящий").withStyle(net.minecraft.ChatFormatting.WHITE);
             case "PAY_IN" -> Component.literal("Перевод: входящий").withStyle(net.minecraft.ChatFormatting.WHITE);
             case "PAY_SPLIT_OUT" -> Component.literal("Платёж (комиссия): списание").withStyle(net.minecraft.ChatFormatting.WHITE);

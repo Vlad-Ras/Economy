@@ -742,14 +742,26 @@ public boolean mouseClicked(double mouseX, double mouseY, int button) {
         int textX = x + rx + RIGHT_INNER_PAD;
         int textY = y + contentY + SECTION_H + 10;
 
+        // Prevent info text from being covered by bottom controls (mode button / qty box / action button).
+        // Widgets are drawn AFTER chrome, so any text that flows into that area will be hidden.
+        int controlsTop = (this.tradeModeButton != null)
+                ? this.tradeModeButton.getY()
+                : (this.qtyBox != null ? this.qtyBox.getY() : (contentY + contentH));
+        int infoBottom = y + controlsTop - 10; // small padding above the first control
+        boolean truncated = false;
+
         Component mode = sellingToShop
                 ? Component.translatable("screen.avilixeconomy.shop.mode_buy_short")
                 : Component.translatable("screen.avilixeconomy.shop.mode_sell_short");
 
-        gfx.drawString(this.font, Component.translatable("screen.avilixeconomy.shop.mode"), textX, textY, 0xFFFFFF, false);
-        textY += 12;
-        gfx.drawString(this.font, mode, textX, textY, 0xCFCFCF, false);
-        textY += 14;
+        if (textY + 10 < infoBottom) {
+            gfx.drawString(this.font, Component.translatable("screen.avilixeconomy.shop.mode"), textX, textY, 0xFFFFFF, false);
+            textY += 12;
+        } else truncated = true;
+        if (!truncated && textY + 10 < infoBottom) {
+            gfx.drawString(this.font, mode, textX, textY, 0xCFCFCF, false);
+            textY += 14;
+        } else truncated = true;
 
         // In slot-mode we show price/availability for the selected template slot.
         var shop = this.menu.getShop();
@@ -767,44 +779,56 @@ public boolean mouseClicked(double mouseX, double mouseY, int button) {
             int reqCount = Math.max(1, shop.getTemplate().getStackInSlot(this.selectedTradeSlot).getCount());
             double perItem = MoneyUtils.round2(unitPrice / (double) reqCount);
 
-            gfx.drawString(this.font,
-                    Component.translatable("screen.avilixeconomy.shop.price_per_item_value", MoneyUtils.formatNoks(perItem)),
-                    textX, textY, 0xCFCFCF, false);
-            textY += 12;
+            if (!truncated && textY + 10 < infoBottom) {
+                gfx.drawString(this.font,
+                        Component.translatable("screen.avilixeconomy.shop.price_per_item_value", MoneyUtils.formatNoks(perItem)),
+                        textX, textY, 0xCFCFCF, false);
+                textY += 12;
+            } else truncated = true;
 
-            gfx.drawString(this.font,
-                    Component.translatable("screen.avilixeconomy.shop.price_slot_value", MoneyUtils.formatNoks(unitPrice), Integer.toString(reqCount)),
-                    textX, textY, 0x9A9A9A, false);
-            textY += 12;
+            if (!truncated && textY + 10 < infoBottom) {
+                gfx.drawString(this.font,
+                        Component.translatable("screen.avilixeconomy.shop.price_slot_value", MoneyUtils.formatNoks(unitPrice), Integer.toString(reqCount)),
+                        textX, textY, 0x9A9A9A, false);
+                textY += 12;
+            } else truncated = true;
         } else {
-            gfx.drawString(this.font,
-                    Component.translatable("screen.avilixeconomy.shop.price_value", MoneyUtils.formatNoks(unitPrice)),
-                    textX, textY, 0xCFCFCF, false);
-            textY += 12;
+            if (!truncated && textY + 10 < infoBottom) {
+                gfx.drawString(this.font,
+                        Component.translatable("screen.avilixeconomy.shop.price_value", MoneyUtils.formatNoks(unitPrice)),
+                        textX, textY, 0xCFCFCF, false);
+                textY += 12;
+            } else truncated = true;
         }
 
-        gfx.drawString(this.font,
-                Component.translatable("screen.avilixeconomy.shop.available_value", Integer.toString(avail)),
-                textX, textY, 0xCFCFCF, false);
-        textY += 12;
+        if (!truncated && textY + 10 < infoBottom) {
+            gfx.drawString(this.font,
+                    Component.translatable("screen.avilixeconomy.shop.available_value", Integer.toString(avail)),
+                    textX, textY, 0xCFCFCF, false);
+            textY += 12;
+        } else truncated = true;
 
         // In lot-mode (and only there) show player's lot count when selling to shop.
         if (sellingToShop && !this.tradeBySlot) {
             int yourLots = computePlayerLots();
-            gfx.drawString(this.font,
-                    Component.translatable("screen.avilixeconomy.shop.your_lots_value", Integer.toString(yourLots)),
-                    textX, textY, 0xCFCFCF, false);
-            textY += 12;
+            if (!truncated && textY + 10 < infoBottom) {
+                gfx.drawString(this.font,
+                        Component.translatable("screen.avilixeconomy.shop.your_lots_value", Integer.toString(yourLots)),
+                        textX, textY, 0xCFCFCF, false);
+                textY += 12;
+            } else truncated = true;
         }
 
         int units = parseLots();
         double total = (slotReady || !this.tradeBySlot)
                 ? MoneyUtils.round2((double) units * unitPrice)
                 : 0.0;
-        gfx.drawString(this.font,
-                Component.translatable("screen.avilixeconomy.shop.total_value", MoneyUtils.formatNoks(total)),
-                textX, textY, 0x80FF80, false);
-        textY += 12;
+        if (!truncated && textY + 10 < infoBottom) {
+            gfx.drawString(this.font,
+                    Component.translatable("screen.avilixeconomy.shop.total_value", MoneyUtils.formatNoks(total)),
+                    textX, textY, 0x80FF80, false);
+            textY += 12;
+        } else truncated = true;
 
         int commBps = this.menu.getCommissionBps();
         if (commBps > 0) {
@@ -813,16 +837,25 @@ public boolean mouseClicked(double mouseX, double mouseY, int button) {
             double net = Math.max(0.0, MoneyUtils.round2(total - fee));
 
             String pctStr = String.format(java.util.Locale.ROOT, "%.2f", pct);
-            gfx.drawString(this.font,
-                    Component.translatable("screen.avilixeconomy.shop.commission_value", pctStr),
-                    textX, textY, 0xCFCFCF, false);
-            textY += 12;
+            if (!truncated && textY + 10 < infoBottom) {
+                gfx.drawString(this.font,
+                        Component.translatable("screen.avilixeconomy.shop.commission_value", pctStr),
+                        textX, textY, 0xCFCFCF, false);
+                textY += 12;
+            } else truncated = true;
 
             Component netLine = sellingToShop
                     ? Component.translatable("screen.avilixeconomy.shop.net_you_value", MoneyUtils.formatNoks(net))
                     : Component.translatable("screen.avilixeconomy.shop.net_seller_value", MoneyUtils.formatNoks(net));
-            gfx.drawString(this.font, netLine, textX, textY, 0xCFCFCF, false);
-            textY += 12;
+            if (!truncated && textY + 10 < infoBottom) {
+                gfx.drawString(this.font, netLine, textX, textY, 0xCFCFCF, false);
+                textY += 12;
+            } else truncated = true;
+        }
+
+        // If we ran out of space, draw an unobtrusive ellipsis line.
+        if (truncated && infoBottom - 12 >= (y + contentY + SECTION_H + 10)) {
+            gfx.drawString(this.font, Component.literal("…"), textX, infoBottom - 12, 0x9A9A9A, false);
         }
 
         // qty label (EditBox is a widget, positioned in relayoutWidgets)

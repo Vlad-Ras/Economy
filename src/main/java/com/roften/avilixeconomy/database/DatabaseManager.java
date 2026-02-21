@@ -508,6 +508,57 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * Removes amount from all existing economy records (offline included).
+     * Returns number of affected rows.
+     */
+    public static int removeBalanceFromAll(double amount, UUID excludeUuid) {
+        if (dataSource == null) return 0;
+        double a = MoneyUtils.round2(amount);
+        if (Math.abs(a) < 0.000001) return 0;
+
+        String sql = "UPDATE economy SET balance = GREATEST(0, balance - ?)" +
+                (excludeUuid != null ? " WHERE uuid <> ?" : "");
+
+        try (Connection c = getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            int idx = 1;
+            ps.setBigDecimal(idx++, MoneyUtils.toDb(a));
+            if (excludeUuid != null) {
+                ps.setString(idx, excludeUuid.toString());
+            }
+            return ps.executeUpdate();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return 0;
+        }
+    }
+
+    /**
+     * Sets balance for all existing economy records (offline included).
+     * Returns number of affected rows.
+     */
+    public static int setBalanceForAll(double amount, UUID excludeUuid) {
+        if (dataSource == null) return 0;
+        double a = MoneyUtils.round2(Math.max(0.0, amount));
+
+        String sql = "UPDATE economy SET balance = ?" +
+                (excludeUuid != null ? " WHERE uuid <> ?" : "");
+
+        try (Connection c = getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            int idx = 1;
+            ps.setBigDecimal(idx++, MoneyUtils.toDb(a));
+            if (excludeUuid != null) {
+                ps.setString(idx, excludeUuid.toString());
+            }
+            return ps.executeUpdate();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return 0;
+        }
+    }
+
     public static void createPlayerRecord(UUID uuid, String name, double startBalance) throws SQLException {
         try (Connection c = getConnection();
              PreparedStatement st = c.prepareStatement(
