@@ -132,6 +132,7 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
         
         // FTB Library can inject sidebar buttons into any Screen; purge them.
         stripFtbSidebarWidgets();
+        stripInventoryProfilesWidgets();
 // Diagnostic stamp: helps confirm runClient is using latest sources.
         AvilixEconomy.LOGGER.info(UiKit.GUI_BUILD_STAMP);
 
@@ -441,6 +442,7 @@ this.addRenderableWidget(this.tradeModeButton);
         
         // Remove FTB sidebar widgets injected into this Screen.
         stripFtbSidebarWidgets();
+        stripInventoryProfilesWidgets();
 updateUiTransform();
 
 
@@ -899,6 +901,30 @@ public boolean mouseClicked(double mouseX, double mouseY, int button) {
         try {
             this.renderables.removeIf(ShopBuyScreen::isFtbSidebarObject);
         } catch (Throwable ignored) {}
+    }
+
+    // --- Inventory Profiles Next suppression ---
+    private void stripInventoryProfilesWidgets() {
+        try {
+            this.children().removeIf(ShopBuyScreen::isInventoryProfilesObject);
+        } catch (Throwable ignored) {}
+        try {
+            this.renderables.removeIf(ShopBuyScreen::isInventoryProfilesObject);
+        } catch (Throwable ignored) {}
+    }
+
+    private static boolean isInventoryProfilesObject(Object o) {
+        if (o == null) return false;
+        String n = o.getClass().getName();
+        String l = n.toLowerCase(java.util.Locale.ROOT);
+        // Keep it purely string-based so we don't need hard dependencies.
+        return l.contains("inventoryprofiles")
+                || l.contains("invprofiles")
+                || l.contains("inventory_profiles")
+                || l.contains("inventoryprofilesnext")
+                || l.contains("libipn")
+                || n.startsWith("org.anti_ad.")
+                || n.startsWith("de.rubixdev.");
     }
 
     private static boolean isFtbSidebarObject(Object o) {

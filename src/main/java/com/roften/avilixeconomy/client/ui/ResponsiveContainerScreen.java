@@ -81,6 +81,7 @@ public abstract class ResponsiveContainerScreen<T extends AbstractContainerMenu>
         super.init();
         updateUiTransform();
         layoutWidgets();
+        stripInjectedWidgets();
     }
 
     @Override
@@ -93,6 +94,8 @@ public abstract class ResponsiveContainerScreen<T extends AbstractContainerMenu>
     @Override
     public void render(GuiGraphics gfx, int mouseX, int mouseY, float partialTick) {
         updateUiTransform();
+
+        stripInjectedWidgets();
 
         // Полупрозрачная подложка на весь экран — чтобы HUD/scoreboard не "лез" в интерфейс.
         // (Потом поверх будет нарисован сам UI).
@@ -155,6 +158,38 @@ public abstract class ResponsiveContainerScreen<T extends AbstractContainerMenu>
     public boolean mouseReleased(double x, double y, int b) {
         updateUiTransform();
         return super.mouseReleased((x - uiLeft) / uiScale, (y - uiTop) / uiScale, b);
+    }
+
+    /**
+     * Some mods (notably Inventory Profiles Next) inject their own buttons into every
+     * {@link net.minecraft.client.gui.screens.Screen} / {@link AbstractContainerScreen}.
+     * For our custom UI screens this looks broken, so we strip those widgets.
+     *
+     * Purely string-based class-name filtering: no hard dependency on the mod.
+     */
+    protected void stripInjectedWidgets() {
+        try {
+            this.children().removeIf(ResponsiveContainerScreen::isInventoryProfilesObject);
+        } catch (Throwable ignored) {
+        }
+        try {
+            this.renderables.removeIf(ResponsiveContainerScreen::isInventoryProfilesObject);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static boolean isInventoryProfilesObject(Object o) {
+        if (o == null) return false;
+        String n = o.getClass().getName();
+        String l = n.toLowerCase(java.util.Locale.ROOT);
+        // Keep it purely string-based so we don't need hard dependencies.
+        return l.contains("inventoryprofiles")
+                || l.contains("invprofiles")
+                || l.contains("inventory_profiles")
+                || l.contains("inventoryprofilesnext")
+                || l.contains("libipn")
+                || n.startsWith("org.anti_ad.")
+                || n.startsWith("de.rubixdev.");
     }
 
     @Override

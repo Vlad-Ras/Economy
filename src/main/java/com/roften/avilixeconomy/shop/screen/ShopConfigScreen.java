@@ -204,6 +204,9 @@ public class ShopConfigScreen extends AbstractContainerScreen<ShopConfigMenu> {
         
         // FTB Library can inject sidebar buttons into any Screen; purge them.
         stripFtbSidebarWidgets();
+        // Inventory Profiles Next (and similar inventory helper mods) can inject arrow/transfer buttons
+        // into container screens. They must not appear in our custom UI.
+        stripInventoryProfilesWidgets();
 this.selectedTemplateSlot = 0;
         this.menu.setSelectedTemplateSlot(0);
 
@@ -533,6 +536,8 @@ this.renderTuneButton = Button.builder(Component.translatable("screen.avilixecon
         
         // Remove FTB sidebar widgets injected into this Screen.
         stripFtbSidebarWidgets();
+        // Remove Inventory Profiles Next injected widgets (purple arrows, etc.).
+        stripInventoryProfilesWidgets();
 updateUiTransform();
 
 
@@ -945,6 +950,30 @@ updateUiTransform();
         try {
             this.renderables.removeIf(ShopConfigScreen::isFtbSidebarObject);
         } catch (Throwable ignored) {}
+    }
+
+    // --- Inventory Profiles Next suppression ---
+    private void stripInventoryProfilesWidgets() {
+        try {
+            this.children().removeIf(ShopConfigScreen::isInventoryProfilesObject);
+        } catch (Throwable ignored) {}
+        try {
+            this.renderables.removeIf(ShopConfigScreen::isInventoryProfilesObject);
+        } catch (Throwable ignored) {}
+    }
+
+    private static boolean isInventoryProfilesObject(Object o) {
+        if (o == null) return false;
+        String n = o.getClass().getName();
+        String l = n.toLowerCase(java.util.Locale.ROOT);
+        // Keep it purely string-based so we don't need hard dependencies.
+        return l.contains("inventoryprofiles")
+                || l.contains("invprofiles")
+                || l.contains("inventory_profiles")
+                || l.contains("inventoryprofilesnext")
+                || l.contains("libipn")
+                || n.startsWith("org.anti_ad.")
+                || n.startsWith("de.rubixdev.");
     }
 
     private static boolean isFtbSidebarObject(Object o) {

@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.roften.avilixeconomy.AvilixEconomy;
 import com.roften.avilixeconomy.util.MoneyUtils;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.TagKey;
@@ -98,8 +99,18 @@ public final class MinPriceManager {
                 }
                 if (id == null) continue;
 
-                if (isTag) TAG_MIN.put(id, v);
-                else MIN.put(id, v);
+                if (isTag) {
+                    TAG_MIN.put(id, v);
+                } else {
+                    // UX/backward compatibility: many admins naturally write tag ids without '#'
+                    // (e.g. "create:seats") assuming it will behave like a tag.
+                    // If the id is NOT a registered item, treat it as a tag rule.
+                    if (!BuiltInRegistries.ITEM.containsKey(id)) {
+                        TAG_MIN.put(id, v);
+                    } else {
+                        MIN.put(id, v);
+                    }
+                }
             }
 
         } catch (Exception ex) {
