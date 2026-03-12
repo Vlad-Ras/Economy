@@ -79,7 +79,7 @@ public class EconomyCommands {
         return DatabaseManager.getUuidByName(name);
     }
 
-    
+
 public static void register(RegisterCommandsEvent event) {
 
     event.getDispatcher().register(
@@ -101,6 +101,20 @@ public static void register(RegisterCommandsEvent event) {
                                 player.sendSystemMessage(Component.literal("Ваш баланс: " + MoneyUtils.formatNoks(bal)));
                                 return Command.SINGLE_SUCCESS;
                             })
+                    )
+
+                    //eco pay
+                    .then(Commands.literal("pay")
+                            .then(Commands.argument("player", StringArgumentType.word())
+                                    .suggests(PLAYER_SUGGESTIONS)
+                                    .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.01))
+                                            .executes(ctx -> payToPlayer(
+                                                    ctx.getSource(),
+                                                    StringArgumentType.getString(ctx, "player"),
+                                                    DoubleArgumentType.getDouble(ctx, "amount")
+                                            ))
+                                    )
+                            )
                     )
 
                     // ===== /eco history [page] =====
@@ -772,6 +786,50 @@ public static void register(RegisterCommandsEvent event) {
         );
     }
 
+    private static int payToPlayer(CommandSourceStack src, String targetName, double rawAmount) {
+        ServerPlayer sender;
+        try {
+            sender = src.getPlayer();
+        } catch (Exception e) {
+            src.sendSystemMessage(Component.literal("Эта команда доступна только игроку: /eco pay"));
+            return 0;
+        }
+
+        double amount = MoneyUtils.round2(rawAmount);
+        if (amount <= 0.0) {
+            src.sendSystemMessage(Component.literal("Сумма должна быть больше 0."));
+            return 0;
+        }
+
+        java.util.UUID to = resolveUuidByName(src, targetName);
+        if (to == null) {
+            src.sendSystemMessage(Component.literal("Игрок не найден (нет в онлайне и нет записи в БД)"));
+            return 0;
+        }
+
+        if (sender.getUUID().equals(to)) {
+            src.sendSystemMessage(Component.literal("Нельзя перевести деньги самому себе."));
+            return 0;
+        }
+
+        boolean ok = EconomyData.pay(sender.getUUID(), to, amount);
+        if (!ok) {
+            src.sendSystemMessage(Component.literal("Не удалось выполнить перевод. Проверьте баланс."));
+            return 0;
+        }
+
+        String senderName = sender.getName().getString();
+        String receiverName = targetName;
+        ServerPlayer receiverOnline = src.getServer().getPlayerList().getPlayerByName(targetName);
+        if (receiverOnline != null) receiverName = receiverOnline.getName().getString();
+
+        sender.sendSystemMessage(Component.literal("Перевод выполнен: " + receiverName + " — " + MoneyUtils.formatNoks(amount)));
+        if (receiverOnline != null) {
+            receiverOnline.sendSystemMessage(Component.literal("Вам перевёл " + senderName + ": " + MoneyUtils.formatNoks(amount)));
+        }
+        return Command.SINGLE_SUCCESS;
+    }
+
     private static int showTop(CommandSourceStack src, int page) {
         final int perPage = 10;
         int safePage = Math.max(1, page);
@@ -805,7 +863,7 @@ public static void register(RegisterCommandsEvent event) {
         return Command.SINGLE_SUCCESS;
     }
 
-    
+
 private static int showMinPriceList(CommandSourceStack src, int page) {
     final int perPage = 10;
     int safePage = Math.max(1, page);

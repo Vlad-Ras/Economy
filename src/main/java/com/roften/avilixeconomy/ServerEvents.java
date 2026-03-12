@@ -20,7 +20,8 @@ public class ServerEvents {
         AvilixEconomy.LOGGER.info("ServerAboutToStart — сервер создаётся");
     }
 
-    private void onServerStarting(ServerStartingEvent event) {
+    private void onServerStarting(ServerStartingEvent event)
+    {
         AvilixEconomy.LOGGER.info("ServerStarting — запускаем миры");
     }
 
@@ -36,4 +37,6 @@ public class ServerEvents {
     private void onServerStopped(ServerStoppedEvent event) {
         AvilixEconomy.LOGGER.info("ServerStopped — сервер выключен");
     }
+
+
 }

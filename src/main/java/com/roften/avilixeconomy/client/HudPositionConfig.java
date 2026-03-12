@@ -23,7 +23,7 @@ public final class HudPositionConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path FILE = FMLPaths.CONFIGDIR.get().resolve("avilixeconomy_hud.json");
 
-    private static int x = 10;
+    private static int x = 200;
     private static int y = 10;
     private static boolean loaded = false;
 

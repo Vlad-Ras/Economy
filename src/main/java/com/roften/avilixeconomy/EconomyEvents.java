@@ -79,8 +79,6 @@ public class EconomyEvents {
 
             if (player instanceof net.minecraft.server.level.ServerPlayer sp) {
                 // Give the player-facing shop guide once (optional, requires Patchouli to be useful)
-                tryGiveShopGuideOnce(sp);
-
                 // Also send render override snapshot (client cache)
                 try {
                     var entries = com.roften.avilixeconomy.shop.render.RenderOverrideManager.snapshotAll();
@@ -91,28 +89,6 @@ public class EconomyEvents {
 
         } catch (Exception ex) {
             ex.printStackTrace();
-        }
-    }
-
-    /**
-     * Gives the player-facing shop guide exactly once per player.
-     * The item itself is safe even without Patchouli installed (it just won't open the book).
-     */
-    private static void tryGiveShopGuideOnce(net.minecraft.server.level.ServerPlayer sp) {
-        try {
-            var tag = sp.getPersistentData();
-            final String KEY = "avilixeconomy_shop_guide_given";
-            if (tag.getBoolean(KEY)) return;
-
-            // Give the item (try inventory first, otherwise drop)
-            ItemStack book = new ItemStack(ModItems.SHOP_GUIDE.get());
-            boolean added = sp.getInventory().add(book);
-            if (!added) {
-                sp.drop(book, false);
-            }
-
-            tag.putBoolean(KEY, true);
-        } catch (Throwable ignored) {
         }
     }
 }

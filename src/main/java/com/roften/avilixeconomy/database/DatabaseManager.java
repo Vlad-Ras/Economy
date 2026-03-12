@@ -99,7 +99,7 @@ public class DatabaseManager {
                         owner_name VARCHAR(32) NOT NULL,
                         buyer_uuid VARCHAR(36) NOT NULL,
                         buyer_name VARCHAR(32) NOT NULL,
-                        trade_type VARCHAR(8) NOT NULL DEFAULT 'SELL',
+                        trade_type VARCHAR(16) NOT NULL DEFAULT 'SELL',
                         price_per_lot DECIMAL(18,2) NOT NULL,
                         lots INT NOT NULL,
                         total_price DECIMAL(18,2) NOT NULL,
@@ -216,8 +216,12 @@ public class DatabaseManager {
         ensureColumn(c, "shop_sales", "buyer_name",
                 "ALTER TABLE shop_sales ADD COLUMN buyer_name VARCHAR(32) NOT NULL DEFAULT ''");
         ensureColumn(c, "shop_sales", "trade_type",
-                "ALTER TABLE shop_sales ADD COLUMN trade_type VARCHAR(8) NOT NULL DEFAULT 'SELL'");
+                "ALTER TABLE shop_sales ADD COLUMN trade_type VARCHAR(16) NOT NULL DEFAULT 'SELL'");
 
+        try (PreparedStatement st = c.prepareStatement(
+                "ALTER TABLE shop_sales MODIFY COLUMN trade_type VARCHAR(16) NOT NULL DEFAULT 'SELL'")) {
+            st.executeUpdate();
+        } catch (Exception ignored) {}
     }
 
 
@@ -584,7 +588,7 @@ public class DatabaseManager {
         }
     }
 
-    
+
     /**
      * Ensures an economy record exists for the given UUID (used for server commission account).
      */

@@ -36,4 +36,6 @@ public class GuiOverlaySuppressor {
         // Наш Screen (магазин/трейд) при этом продолжает рисоваться.
         if (shouldSuppress()) event.setCanceled(true);
     }
+
+
 }

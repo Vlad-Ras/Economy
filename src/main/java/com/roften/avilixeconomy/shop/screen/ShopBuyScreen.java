@@ -57,7 +57,7 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
     private EditBox qtyBox;
     private Button actionButton;
     private Button tradeModeButton;
-    private boolean tradeBySlot = false;
+    private boolean tradeBySlot = true;
 
     /** Selected template slot for slot-mode trades (0..8), -1 = none. */
     private int selectedTradeSlot = -1;
@@ -98,6 +98,16 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
     public int getScaledUiWidth() { return Math.round(this.imageWidth * this.uiScale); }
     public int getScaledUiHeight() { return Math.round(this.imageHeight * this.uiScale); }
 
+    private int findFirstTradeableTemplateSlot() {
+        var shop = this.menu != null ? this.menu.getShop() : null;
+        if (shop == null) return -1;
+        for (int i = 0; i < 9; i++) {
+            var req = shop.getTemplate().getStackInSlot(i);
+            if (req != null && !req.isEmpty()) return i;
+        }
+        return -1;
+    }
+
     public ShopBuyScreen(ShopBuyMenu menu, Inventory inv, Component title) {
         super(menu, inv, title);
         // Default height (extra height is enabled only in buyback mode, see updateLayoutDimensions()).
@@ -129,7 +139,7 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
     protected void init() {
         super.init();
 
-        
+
         // FTB Library can inject sidebar buttons into any Screen; purge them.
         stripFtbSidebarWidgets();
         stripInventoryProfilesWidgets();
@@ -154,17 +164,16 @@ public class ShopBuyScreen extends AbstractContainerScreen<ShopBuyMenu> {
         this.addRenderableWidget(this.actionButton);
 
 
-this.tradeModeButton = Button.builder(Component.literal(""), b -> {
-    this.tradeBySlot = !this.tradeBySlot;
-    this.selectedTradeSlot = -1;
-    this.needsRelayout = true;
-    updateActionStateAndText();
-}).bounds(0, 0, 80, BTN_H).build();
-this.addRenderableWidget(this.tradeModeButton);
+        this.tradeModeButton = Button.builder(Component.literal(""), b -> {
+            this.tradeBySlot = !this.tradeBySlot;
+            this.selectedTradeSlot = this.tradeBySlot ? findFirstTradeableTemplateSlot() : -1;
+            this.needsRelayout = true;
+            updateActionStateAndText();
+        }).bounds(0, 0, 80, BTN_H).build();
+        this.addRenderableWidget(this.tradeModeButton);
 
-        this.needsRelayout = true;
-        updateUiTransform();
-        updateActionStateAndText();
+        this.selectedTradeSlot = this.tradeBySlot ? findFirstTradeableTemplateSlot() : -1;
+
     }
 
     @Override
@@ -439,7 +448,7 @@ this.addRenderableWidget(this.tradeModeButton);
 
     @Override
     public void render(GuiGraphics gfx, int mouseX, int mouseY, float partialTick) {
-        
+
         // Remove FTB sidebar widgets injected into this Screen.
         stripFtbSidebarWidgets();
         stripInventoryProfilesWidgets();

@@ -163,23 +163,25 @@ MenuProvider provider = new SimpleMenuProvider(
         if (!state.is(newState.getBlock())) {
             BlockEntity be = level.getBlockEntity(pos);
             if (be instanceof ShopBlockEntity shop) {
-                // Drop stock when the block is broken.
+
                 if (!level.isClientSide) {
-                    for (int i = 0; i < shop.getTemplate().getSlots(); i++) {
-                        ItemStack s = shop.getTemplate().getStackInSlot(i);
-                        if (!s.isEmpty()) {
-                            Containers.dropItemStack(level, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, s.copy());
-                        }
-                    }
+
                     for (int i = 0; i < shop.getStock().getSlots(); i++) {
                         ItemStack s = shop.getStock().getStackInSlot(i);
                         if (!s.isEmpty()) {
-                            Containers.dropItemStack(level, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, s.copy());
+                            Containers.dropItemStack(
+                                    level,
+                                    pos.getX() + 0.5,
+                                    pos.getY() + 0.5,
+                                    pos.getZ() + 0.5,
+                                    s.copy()
+                            );
                         }
                     }
                 }
             }
         }
+
         super.onRemove(state, level, pos, newState, isMoving);
     }
 }

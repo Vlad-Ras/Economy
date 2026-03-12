@@ -105,8 +105,14 @@ public class NoxReward extends Reward {
         if (notify) {
             Component msg = Component.translatable("ftbquests.reward.avilixeconomy.nox")
                     .append(": ")
-                    .append(Component.literal("+" + amount).withStyle(ChatFormatting.GREEN));
-            NetworkManager.sendToPlayer(player, new NotifyRewardMessage(id, msg, Icons.MONEY, disableRewardScreenBlur));
+                    .append(Component.literal(" +" + amount).withStyle(ChatFormatting.GREEN));
+
+            NetworkManager.sendToPlayer(player,
+                    new NotifyRewardMessage(id, msg, Icons.MONEY, disableRewardScreenBlur));
+
+            player.sendSystemMessage(
+                    Component.literal("§aВы получили §6" + amount + "§a ноксов за квест!")
+            );
         }
     }
 

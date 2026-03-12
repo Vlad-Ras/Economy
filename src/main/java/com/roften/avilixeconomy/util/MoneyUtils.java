@@ -16,8 +16,8 @@ public final class MoneyUtils {
      * Requirements: currency is always called "Нокс".
      */
     public static final String CURRENCY_SINGULAR = "Нокс";
-    public static final String CURRENCY_GEN_SINGULAR = "Нокса";
-    public static final String CURRENCY_GEN_PLURAL = "Ноксов";
+    public static final String CURRENCY_GEN_SINGULAR = "Нокс";
+    public static final String CURRENCY_GEN_PLURAL = "Нокс";
 
     public static double round2(double v) {
         return BigDecimal.valueOf(v).setScale(2, RoundingMode.HALF_UP).doubleValue();
