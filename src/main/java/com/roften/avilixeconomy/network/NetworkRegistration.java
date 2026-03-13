@@ -750,7 +750,7 @@ public record ShopSalesEntryPayload(long createdAtMillis, String tradeType, Stri
         StreamCodec.of(
                 (buf, e) -> {
                     buf.writeLong(e.createdAtMillis());
-                        buf.writeUtf(e.tradeType(), 8);
+                        buf.writeUtf(e.tradeType(), 16);
                         buf.writeUtf(e.counterpartyName(), 32);
                         buf.writeInt(e.lots());
                         buf.writeDouble(e.totalPrice());
