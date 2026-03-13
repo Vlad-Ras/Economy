@@ -747,9 +747,9 @@ public record ShopRequestSalesPayload(BlockPos pos, int limit, int offset) imple
 
 public record ShopSalesEntryPayload(long createdAtMillis, String tradeType, String counterpartyName, int lots, double totalPrice, double pricePerLot, String itemsSummary) {
     public static final StreamCodec<RegistryFriendlyByteBuf, ShopSalesEntryPayload> CODEC =
-        StreamCodec.of(
-                (buf, e) -> {
-                    buf.writeLong(e.createdAtMillis());
+            StreamCodec.of(
+                    (buf, e) -> {
+                        buf.writeLong(e.createdAtMillis());
                         buf.writeUtf(e.tradeType(), 16);
                         buf.writeUtf(e.counterpartyName(), 32);
                         buf.writeInt(e.lots());
@@ -759,7 +759,7 @@ public record ShopSalesEntryPayload(long createdAtMillis, String tradeType, Stri
                     },
                     buf -> new ShopSalesEntryPayload(
                             buf.readLong(),
-                            buf.readUtf(8),
+                            buf.readUtf(16),
                             buf.readUtf(32),
                             buf.readInt(),
                             buf.readDouble(),
